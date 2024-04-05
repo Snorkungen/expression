@@ -17,7 +17,15 @@ TT_Equ = 1 << 10
 TT_Exponent = 1 << 11
 TT_Func = 1 << 12
 
-TT_Comma = 1 << 15  # this value is special
+TT_Comma = 1 << 14  # this value is special
+
+TT_RESERVED_0 = 0
+"""this type is reserved, and will not be used by the parser, with the caveat that if there is an error then the token type might be 0"""
+TT_RESERVED_1 = 1 << 15
+"""this type is reserved, and will not be used by the parser"""
+TT_RESERVED_2 = 1 << 16
+"""this type is reserved, and will not be used by the parser"""
+
 
 RESERVED_IDENTITIES = {
     "+": TT_Add | TT_Operation | TT_Ident,
