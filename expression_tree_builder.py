@@ -1,10 +1,11 @@
-from typing import Tuple, Any
+from typing import Tuple, Any, Iterable
 from copy import deepcopy
 from expression_parser import (
     TT_RESERVED_1,
     TT_Equ,
     TT_Exponent,
     parse,
+    parsed_to_string,
     TT_Operation,
     TT_Mult,
     TT_Div,
@@ -14,6 +15,8 @@ from expression_parser import (
     TT_Float,
     TT_Add,
     TT_Sub,
+    TT_Tokens,
+    TT_INFO_MASK
 )
 
 TT_Atom = TT_RESERVED_1
@@ -68,14 +71,14 @@ class Operation(Atom):
         self.right = right
 
     def __str__(self) -> str:
-        return f"{self.left} {self.value} {self.right}"
+        return parsed_to_string(flatten_tree(self))
 
 
 class Equals(Operation):
     pass
 
 
-def build_tree(tokens: list[Tuple[int, Any]]) -> Operation:
+def build_tree(tokens: Iterable[Tuple[int, Any]]) -> Operation:
     # make a copy of the tokens
     tokens = list(deepcopy(tokens))
 
@@ -89,6 +92,8 @@ def build_tree(tokens: list[Tuple[int, Any]]) -> Operation:
         if not token[0] in m:
             if token[0] == TT_Atom:
                 return token[1]
+            elif token[0] == TT_Tokens:
+                return build_tree(token[1])
             # this is for now becaus i could not be bothered
             raise ValueError
 
@@ -145,6 +150,27 @@ def build_tree(tokens: list[Tuple[int, Any]]) -> Operation:
     return tokens[0][1]
 
 
-expression = "10 + a * 20 / 10 = b"
+def flatten_tree(node: Atom) -> Iterable[Tuple[int, str]]:
+    """Flatten a tree to a list of tokens"""
+    # TODO: rewrite to not rely on recursion, it feels "Yucky", I do not understand how this works
+    token = (node.token_type, str(node.value))
 
-print(build_tree(parse(expression)))
+    if isinstance(node, Operation):
+        left_tokens = flatten_tree(node.left)
+        right_tokens = flatten_tree(node.right)
+
+        if node.left.token_type & TT_Operation and (node.token_type & TT_INFO_MASK) > (node.left.token_type & TT_INFO_MASK):
+            left_tokens = [(TT_Tokens, left_tokens)]
+        if node.right.token_type & TT_Operation and (node.token_type & TT_INFO_MASK) > (node.right.token_type & TT_INFO_MASK):
+            right_tokens = [(TT_Tokens, right_tokens)]
+
+        return [*left_tokens, token, *right_tokens]
+
+    return [token]
+
+
+expression = "10 + a * (19 + 1^(2 - 1)) / 10 = b"
+tokens = parse(expression)
+tree = build_tree(tokens)
+
+print(tree)
