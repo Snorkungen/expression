@@ -4,7 +4,6 @@ from expression_parser import (
     TT_RESERVED_1,
     TT_Equ,
     TT_Exponent,
-    parse,
     parsed_to_string,
     TT_Operation,
     TT_Mult,
@@ -16,7 +15,7 @@ from expression_parser import (
     TT_Add,
     TT_Sub,
     TT_Tokens,
-    TT_INFO_MASK
+    TT_INFO_MASK,
 )
 
 TT_Atom = TT_RESERVED_1
@@ -159,9 +158,13 @@ def flatten_tree(node: Atom) -> Iterable[Tuple[int, str]]:
         left_tokens = flatten_tree(node.left)
         right_tokens = flatten_tree(node.right)
 
-        if node.left.token_type & TT_Operation and (node.token_type & TT_INFO_MASK) > (node.left.token_type & TT_INFO_MASK):
+        if node.left.token_type & TT_Operation and (node.token_type & TT_INFO_MASK) >= ( # if division wasn't real ">" would suffice
+            node.left.token_type & TT_INFO_MASK
+        ):
             left_tokens = [(TT_Tokens, left_tokens)]
-        if node.right.token_type & TT_Operation and (node.token_type & TT_INFO_MASK) > (node.right.token_type & TT_INFO_MASK):
+        if node.right.token_type & TT_Operation and (node.token_type & TT_INFO_MASK) >= (
+            node.right.token_type & TT_INFO_MASK
+        ):
             right_tokens = [(TT_Tokens, right_tokens)]
 
         return [*left_tokens, token, *right_tokens]
@@ -169,8 +172,32 @@ def flatten_tree(node: Atom) -> Iterable[Tuple[int, str]]:
     return [token]
 
 
-expression = "10 + a * (19 + 1^(2 - 1)) / 10 = b"
-tokens = parse(expression)
-tree = build_tree(tokens)
+def compare_varible(a: Variable, b: Variable) -> bool:
+    return (
+        a.value == b.value
+    )  # in future the variable might have more information contained, such as metadata
 
-print(tree)
+
+def is_variable_in_tree(root: Atom, node: Atom) -> bool:
+    assert type(node) == Variable
+
+    if not isinstance(root, Operation):
+        if root.token_type == TT_Ident:
+            return compare_varible(root, node)
+        return False
+
+    atoms = [root.left, root.right]
+    while len(atoms) > 0:
+        atom = atoms.pop()
+
+        if isinstance(atom, Operation):
+            atoms.extend((atom.left, atom.right))
+            continue
+
+        if type(atom) == Variable and compare_varible(atom, node):
+            return True
+
+    return False
+
+
+# TODO: write tests
