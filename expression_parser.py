@@ -1,39 +1,61 @@
 from typing import Iterable, Tuple, Any
 
-TT_Numeric = 1 >> 0  # Integers and floats
-TT_Ident = 1 << 1  #  Identity Everything that is not a number
-TT_Tokens = 1 << 2  # A type containing the contents of a bracket
+"""
+    first four(4) bits are reserved for encoding information
+    0b0000 - is reserved
+"""
 
-TT_Operation = 1 << 3
+TT_INFO_MASK = 0b1111
+"""1-based counting"""
 
-TT_Int = 1 << 4
-TT_Float = 1 << 5
+TT_Numeric = 1 << 4  # Integers and floats
+"""Numeric Numbers are speci"""
+TT_Ident = 1 << 5  #  Identity Everything that is not a number
+TT_Tokens = 1 << 6  # A type containing the contents of a bracket
 
-TT_Add = 1 << 6
-TT_Sub = 1 << 7
-TT_Mult = 1 << 8
-TT_Div = 1 << 9
-TT_Equ = 1 << 10
-TT_Exponent = 1 << 11
-TT_Func = 1 << 12
+TT_Int = 1 << 7
+TT_Float = 1 << 8
 
-TT_Comma = 1 << 14  # this value is special
+TT_Operation = 1 << 9
+
+"""
+    Encode order of operations into the Operation type
+    4. Parentheses
+    3. Exponentiation
+    2. Multiplication & Division
+    1. Addition & subtraction
+"""
+TT_OOO_ADD = 1  # 0b0001
+TT_OOO_Mult = 2  # 0b0010
+TT_OOO_Expo = 3  # 0b0011
+TT_OOO_Paren = 4  # 0b0100 # this is superoflous, due to the TT_Tokens type
+
+TT_Add = 1 << 10
+TT_Sub = 1 << 11
+TT_Mult = 1 << 12
+TT_Div = 1 << 13
+TT_Equ = 1 << 14
+TT_Exponent = 1 << 15
+TT_Func = 1 << 16
+
+TT_Comma = 1 << 17  # this value is special
 
 TT_RESERVED_0 = 0
 """this type is reserved, and will not be used by the parser, with the caveat that if there is an error then the token type might be 0"""
-TT_RESERVED_1 = 1 << 15
+TT_RESERVED_1 = 1 << 18
 """this type is reserved, and will not be used by the parser"""
-TT_RESERVED_2 = 1 << 16
+TT_RESERVED_2 = 1 << 19
 """this type is reserved, and will not be used by the parser"""
-
+TT_RESERVED_3 = 1 << 20
+"""this type is reserved, and will not be used by the parser"""
 
 RESERVED_IDENTITIES = {
-    "+": TT_Add | TT_Operation | TT_Ident,
-    "-": TT_Sub | TT_Operation | TT_Ident,
-    "*": TT_Mult | TT_Operation | TT_Ident,
-    "/": TT_Div | TT_Operation | TT_Ident,
+    "+": TT_Add | TT_Operation | TT_Ident | TT_OOO_ADD,
+    "-": TT_Sub | TT_Operation | TT_Ident | TT_OOO_ADD,
+    "*": TT_Mult | TT_Operation | TT_Ident | TT_OOO_Mult,
+    "/": TT_Div | TT_Operation | TT_Ident | TT_OOO_Mult,
     "=": TT_Equ | TT_Operation | TT_Ident,
-    "^": TT_Exponent | TT_Operation | TT_Ident,
+    "^": TT_Exponent | TT_Operation | TT_Ident | TT_OOO_Expo,
     "__testfunc": TT_Func | TT_Operation | TT_Ident,
     ",": TT_Comma | TT_Operation | TT_Ident,
 }
@@ -94,7 +116,9 @@ def parse(input: str) -> Iterable[Tuple[int, Any]]:
                 buffer += char
             elif char == ".":
                 buffer += "."
-                token_type = (token_type | TT_Float) ^ TT_Int # set type to a numeric float only
+                token_type = (
+                    token_type | TT_Float
+                ) ^ TT_Int  # set type to a numeric float only
             else:
                 # add the current buffer and pressume it is an ident
                 tokens.append((token_type, buffer))
@@ -167,16 +191,15 @@ def parse(input: str) -> Iterable[Tuple[int, Any]]:
     return tokens
 
 
-def parsed_to_string(parsed: Iterable[Tuple[int, Any]]) -> str:
-    text = ""
+def parsed_to_string(parsed: Iterable[Tuple[int, Any]], space: str = " ") -> str:
+    def token_to_string(token: Tuple[int, str]):
+        return (
+            f"({parsed_to_string(token[1])})"
+            if token[0] == TT_Tokens
+            else str(token[1])
+        )
 
-    for token in parsed:
-        if token[0] == TT_Tokens:
-            text += "(" + parsed_to_string(token[1]) + ")"
-            continue
-        text += str(token[1])
-
-    return text
+    return space.join(map(token_to_string, parsed))
 
 
-assert parsed_to_string(parse("12.01 + 1")) == "12.01+1"
+assert parsed_to_string(parse("12.01 + 1"), space="") == "12.01+1"
