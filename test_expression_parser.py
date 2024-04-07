@@ -8,10 +8,10 @@ class ParserTester(unittest.TestCase):
         self.assertTrue(parse("  12.012  ")[0][0] & TT_Float, "#3")
         self.assertTrue(parse("  1212.")[0][0] & TT_Float, "#4")
         self.assertTrue(parse("  1212  ")[0][0] & TT_Int, "#5")
-        # get the above all working firtst
-        # self.assertTrue(parse("-1212  ")[0][0] & TT_Int, "#6")
-        # self.assertTrue(parse("+1212")[0][0] & TT_Int, "#7")
-        # self.assertTrue(parse("+1212.1")[0][0] & TT_Float, "#8")
+
+        self.assertTrue(parse("- 1212  ")[0][0] & TT_Int, "#6")
+        self.assertTrue(parse("+1212")[0][0] & TT_Int, "#7")
+        self.assertTrue(parse("+1212.1")[0][0] & TT_Float, "#8")
 
     def test_read_ident(self):
         self.assertTrue(
@@ -31,6 +31,11 @@ class ParserTester(unittest.TestCase):
         self.assertTrue(tokens[1][0] & TT_Mult)
         self.assertTrue(tokens[2][0] & TT_Ident)
         # there are different situation where this is doing things
+        tokens = parse("-a")
+        self.assertTrue(tokens[0][0] & TT_Numeric_Negative)
+        self.assertTrue(tokens[1][0] & TT_Mult)
+        self.assertTrue(tokens[2][0] & TT_Ident)
+        
 
     def test_brackets(self):
         tokens = parse("(a + 2 (2 * 2))")

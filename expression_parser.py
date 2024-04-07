@@ -9,12 +9,21 @@ TT_INFO_MASK = 0b1111
 """1-based counting"""
 
 TT_Numeric = 1 << 4  # Integers and floats
-"""Numeric Numbers are speci"""
+"""Numeric Numbers are special"""
 TT_Ident = 1 << 5  #  Identity Everything that is not a number
 TT_Tokens = 1 << 6  # A type containing the contents of a bracket
 
 TT_Int = 1 << 7
 TT_Float = 1 << 8
+
+
+"""
+    Encode information such as a Numeric token being signed
+    1. Positive, Explicit, otherwise assumed
+    2. Signed Negative
+"""
+TT_Numeric_Positive = 1
+TT_Numeric_Negative = 2
 
 TT_Operation = 1 << 9
 
@@ -172,11 +181,52 @@ def parse(input: str) -> Iterable[Tuple[int, Any]]:
         if token[0] & TT_Operation:
             if token[0] == next_token[0]:
                 if token[0] & TT_Mult:
-                    tokens.remove(token)
+                    tokens.pop(i)
+                    tokens_positions.pop(i)
+
                     tokens[i] = (RESERVED_IDENTITIES["^"], "^")
                 # TODO: check for stuff like "--" & "+-" & "(- 1)"
                 else:
                     print_warning()
+
+            # look at -
+            if i <= 0 or tokens[i - 1][0] & TT_Operation:
+                if token[0] & (TT_Sub | TT_Add):
+                    if next_token[0] & TT_Numeric:
+                        if (next_token[0] & TT_INFO_MASK) > 0:
+                            # this means it has been touched
+                            raise "Something went wrong"
+                        # Set the new token and remove
+                        tokens[i + 1] = (
+                            next_token[0]
+                            | (
+                                TT_Numeric_Positive
+                                if token[0] & TT_Add
+                                else TT_Numeric_Negative
+                            ),
+                            token[1] + next_token[1],
+                        )
+                        tokens.pop(i)
+                        tokens_positions.pop(i)
+                        i -= 1
+                    elif (
+                        next_token[0] & TT_Ident and not next_token[0] & TT_Operation
+                    ):  # check that next token is only an identity
+                        # implicit multiplication
+                        if token[0] & TT_Add:
+                            tokens[i] = (
+                                (TT_Numeric | TT_Int | TT_Numeric_Positive),
+                                "1",
+                            )
+                        else:
+                            tokens[i] = (
+                                (TT_Numeric | TT_Int | TT_Numeric_Negative),
+                                "-1",
+                            )
+                        i += 1
+                        tokens.insert(i, (TT_Mult, "*"))
+                        tokens_positions.insert(i, -1)
+
         elif not (next_token[0] & TT_Operation):
             if next_token[0] & TT_Numeric:
                 # TODO: have the cabability to issue a warning if two TT_Numerics are being implicitly multiplied
@@ -203,3 +253,5 @@ def parsed_to_string(parsed: Iterable[Tuple[int, Any]], space: str = " ") -> str
 
 
 assert parsed_to_string(parse("12.01 + 1"), space="") == "12.01+1"
+assert len(parse("-1")) == 1
+assert parsed_to_string(parse("-a"), space="") == "-1*a"
