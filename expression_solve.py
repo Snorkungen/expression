@@ -144,3 +144,9 @@ print("_" * int(len(expression) * 1.4))
 print(
     solve_for(build_tree(parse("a^2 = b - 1")), a)
 )  # what i want for now a = (b - 1) ^ (1/2)
+
+
+expression = "(1/2)(m*v/(m + M))^2 = g * h"
+print("_" * int(len(expression) * 1.4))
+v = Variable((TT_Ident, "v"))
+print(solve_for(build_tree(parse(expression)), v))

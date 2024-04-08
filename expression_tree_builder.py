@@ -158,13 +158,15 @@ def flatten_tree(node: Atom) -> Iterable[Tuple[int, str]]:
         left_tokens = flatten_tree(node.left)
         right_tokens = flatten_tree(node.right)
 
-        if node.left.token_type & TT_Operation and (node.token_type & TT_INFO_MASK) >= ( # if division wasn't real ">" would suffice
+        if node.left.token_type & TT_Operation and (
+            node.token_type & TT_INFO_MASK
+        ) >= (  # if division wasn't real ">" would suffice
             node.left.token_type & TT_INFO_MASK
         ):
             left_tokens = [(TT_Tokens, left_tokens)]
-        if node.right.token_type & TT_Operation and (node.token_type & TT_INFO_MASK) >= (
-            node.right.token_type & TT_INFO_MASK
-        ):
+        if node.right.token_type & TT_Operation and (
+            node.token_type & TT_INFO_MASK
+        ) >= (node.right.token_type & TT_INFO_MASK):
             right_tokens = [(TT_Tokens, right_tokens)]
 
         return [*left_tokens, token, *right_tokens]

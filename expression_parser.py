@@ -1,20 +1,20 @@
-from typing import Iterable, Tuple, Any
+from typing import Iterable, Tuple, Any, Final
 
 """
     first four(4) bits are reserved for encoding information
     0b0000 - is reserved
 """
 
-TT_INFO_MASK = 0b1111
+TT_INFO_MASK: Final = 0b1111
 """1-based counting"""
 
-TT_Numeric = 1 << 4  # Integers and floats
+TT_Numeric: Final = 1 << 4  # Integers and floats
 """Numeric Numbers are special"""
-TT_Ident = 1 << 5  #  Identity Everything that is not a number
-TT_Tokens = 1 << 6  # A type containing the contents of a bracket
+TT_Ident: Final = 1 << 5  #  Identity Everything that is not a number
+TT_Tokens: Final = 1 << 6  # A type containing the contents of a bracket
 
-TT_Int = 1 << 7
-TT_Float = 1 << 8
+TT_Int: Final = 1 << 7
+TT_Float: Final = 1 << 8
 
 
 """
@@ -22,10 +22,10 @@ TT_Float = 1 << 8
     1. Positive, Explicit, otherwise assumed
     2. Signed Negative
 """
-TT_Numeric_Positive = 1
-TT_Numeric_Negative = 2
+TT_Numeric_Positive: Final = 1
+TT_Numeric_Negative: Final = 2
 
-TT_Operation = 1 << 9
+TT_Operation: Final = 1 << 9
 
 """
     Encode order of operations into the Operation type
@@ -34,28 +34,28 @@ TT_Operation = 1 << 9
     2. Multiplication & Division
     1. Addition & subtraction
 """
-TT_OOO_ADD = 1  # 0b0001
-TT_OOO_Mult = 2  # 0b0010
-TT_OOO_Expo = 3  # 0b0011
-TT_OOO_Paren = 4  # 0b0100 # this is superoflous, due to the TT_Tokens type
+TT_OOO_ADD: Final = 1  # 0b0001
+TT_OOO_Mult: Final = 2  # 0b0010
+TT_OOO_Expo: Final = 3  # 0b0011
+TT_OOO_Paren: Final = 4  # 0b0100 # this is superoflous, due to the TT_Tokens type
 
-TT_Add = 1 << 10
-TT_Sub = 1 << 11
-TT_Mult = 1 << 12
-TT_Div = 1 << 13
-TT_Equ = 1 << 14
-TT_Exponent = 1 << 15
-TT_Func = 1 << 16
+TT_Add: Final = 1 << 10
+TT_Sub: Final = 1 << 11
+TT_Mult: Final = 1 << 12
+TT_Div: Final = 1 << 13
+TT_Equ: Final = 1 << 14
+TT_Exponent: Final = 1 << 15
+TT_Func: Final = 1 << 16
 
-TT_Comma = 1 << 17  # this value is special
+TT_Comma: Final = 1 << 17  # this value is special
 
-TT_RESERVED_0 = 0
+TT_RESERVED_0: Final = 0
 """this type is reserved, and will not be used by the parser, with the caveat that if there is an error then the token type might be 0"""
-TT_RESERVED_1 = 1 << 18
+TT_RESERVED_1: Final = 1 << 18
 """this type is reserved, and will not be used by the parser"""
-TT_RESERVED_2 = 1 << 19
+TT_RESERVED_2: Final = 1 << 19
 """this type is reserved, and will not be used by the parser"""
-TT_RESERVED_3 = 1 << 20
+TT_RESERVED_3: Final = 1 << 20
 """this type is reserved, and will not be used by the parser"""
 
 RESERVED_IDENTITIES = {
@@ -224,7 +224,7 @@ def parse(input: str) -> Iterable[Tuple[int, Any]]:
                                 "-1",
                             )
                         i += 1
-                        tokens.insert(i, (TT_Mult, "*"))
+                        tokens.insert(i, (RESERVED_IDENTITIES["*"], "*"))
                         tokens_positions.insert(i, -1)
 
         elif not (next_token[0] & TT_Operation):
@@ -232,7 +232,7 @@ def parse(input: str) -> Iterable[Tuple[int, Any]]:
                 # TODO: have the cabability to issue a warning if two TT_Numerics are being implicitly multiplied
                 print_warning()
             i += 1
-            tokens.insert(i, (TT_Mult, "*"))
+            tokens.insert(i, (RESERVED_IDENTITIES["*"], "*"))
             tokens_positions.insert(i, -1)
         i += 1
 
