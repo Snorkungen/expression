@@ -1,6 +1,6 @@
 import unittest
 from expression_tree_builder import *
-from expression_parser import parse
+from expression_parser import RESERVED_IDENTITIES, TT_Func, parse
 
 
 def assert_operation(self: unittest.TestCase, node: Atom, oper_flag: int):
@@ -44,6 +44,22 @@ class TreeBuilder(unittest.TestCase):
 
         assert_operation(self, root, TT_Mult)
         assert_operation(self, root.right, TT_Sub)
+
+    def test_build_function_1(self):
+        """
+        foo
+            +
+        10      10
+        """
+        tokens = parse(
+            "foo (10 + 10)", {**RESERVED_IDENTITIES, "foo": TT_Func | TT_Operation}
+        )
+        root = build_tree(tokens)
+
+        self.assertEqual(type(root), Function)
+        self.assertEqual(len(root.parameters), 1)
+
+
 
 
 def b_nand(a: int, b: int) -> int:

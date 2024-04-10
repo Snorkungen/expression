@@ -55,6 +55,15 @@ class Float(Atom):
         self.token_type = token[0]
         self.value = float(token[1])
 
+class Function(Atom):
+    value: str
+    parameters = Iterable[Atom]
+
+    def __init__(self, token: Tuple[int, str], *parameters: Iterable[Atom]) -> None:
+        super().__init__()
+        self.token_type = token[0]
+        self.value = token[1]
+        self.parameters = parameters
 
 class Operation(Atom):
     right: Atom
@@ -77,7 +86,7 @@ class Equals(Operation):
     pass
 
 
-def build_tree(tokens: Iterable[Tuple[int, Any]]) -> Operation:
+def build_tree(tokens: Iterable[Tuple[int, Any]]) -> Atom:
     # make a copy of the tokens
     tokens = list(deepcopy(tokens))
 

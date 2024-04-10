@@ -1,6 +1,7 @@
 import unittest
 from expression_parser import *
 
+
 class ParserTester(unittest.TestCase):
     def test_read_numeric(self):
         self.assertTrue(parse("  12.012  ")[0][0] & TT_Numeric, "#1")
@@ -35,7 +36,6 @@ class ParserTester(unittest.TestCase):
         self.assertTrue(tokens[0][0] & TT_Numeric_Negative)
         self.assertTrue(tokens[1][0] & TT_Mult)
         self.assertTrue(tokens[2][0] & TT_Ident)
-        
 
     def test_brackets(self):
         tokens = parse("(a + 2 (2 * 2))")
@@ -49,6 +49,14 @@ class ParserTester(unittest.TestCase):
         # self.assertEqual(tokens[0][1][0][0], TT_Tokens)
         # self.assertEqual(len(tokens[0][1]), 1)
         # self.assertEqual(len(tokens[0][1][0][1]), 1)
+
+    def test_user_defined_identity(self):
+        identities = {**RESERVED_IDENTITIES, "foo": TT_Func | TT_Ident}
+        tokens = parse("fooa", identities)
+
+        self.assertTrue(len(tokens) == 3)
+        self.assertTrue(tokens[0][0] == (TT_Func | TT_Ident))
+        self.assertTrue(tokens[1][0] & (TT_Operation))
 
 
 if __name__ == "__main__":

@@ -65,12 +65,12 @@ RESERVED_IDENTITIES = {
     "/": TT_Div | TT_Operation | TT_Ident | TT_OOO_Mult,
     "=": TT_Equ | TT_Operation | TT_Ident,
     "^": TT_Exponent | TT_Operation | TT_Ident | TT_OOO_Expo,
-    "__testfunc": TT_Func | TT_Operation | TT_Ident,
+    "__testfunc": TT_Func | TT_Ident,
     ",": TT_Comma | TT_Operation | TT_Ident,
 }
 
 
-def parse(input: str) -> Iterable[Tuple[int, Any]]:
+def parse(input: str, RESERVED_IDENTITIES=RESERVED_IDENTITIES) -> Iterable[Tuple[int, Any]]:
     tokens: list[Tuple[int, Any]] = []
     tokens_positions = []
     token_type = 0
