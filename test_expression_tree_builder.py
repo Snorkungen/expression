@@ -45,6 +45,17 @@ class TreeBuilder(unittest.TestCase):
         assert_operation(self, root, TT_Mult)
         assert_operation(self, root.right, TT_Sub)
 
+    def test_build_function_0(self):
+        """
+        foo
+            a
+        """
+        tokens = parse("foo a", {**RESERVED_IDENTITIES, "foo": TT_Func | TT_Operation})
+        root = build_tree(tokens)
+
+        self.assertEqual(type(root), Function)
+        self.assertEqual(len(root.parameters), 1)
+
     def test_build_function_1(self):
         """
         foo
@@ -55,12 +66,27 @@ class TreeBuilder(unittest.TestCase):
             "foo (10 + 10)", {**RESERVED_IDENTITIES, "foo": TT_Func | TT_Operation}
         )
         root = build_tree(tokens)
-
         self.assertEqual(type(root), Function)
         self.assertEqual(len(root.parameters), 1)
 
+    def test_build_function_multiple_parameters(self):
+        """
+        foo
+            a , b , c
+        """
+        tokens = parse(
+            "foo (a,b,c)", {**RESERVED_IDENTITIES, "foo": TT_Func | TT_Operation}
+        )
+        root = build_tree(tokens)
+        self.assertEqual(type(root), Function)
+        self.assertEqual(len(root.parameters), 3)
 
-
+        print(root)
+    def test_build_function_bad(self):
+        identities = {**RESERVED_IDENTITIES, "foo": TT_Func | TT_Operation}
+        self.assertRaises(ValueError, build_tree, parse("foo", identities))
+        self.assertRaises(ValueError, build_tree, parse("foo()", identities))
+        self.assertRaises(ValueError, build_tree, parse("foo(a,)", identities))
 
 def b_nand(a: int, b: int) -> int:
     """I think this is a functioning nand operation"""
@@ -69,7 +95,7 @@ def b_nand(a: int, b: int) -> int:
 
 def assert_flattened_variable(self: unittest.TestCase, token: Tuple[int, Any]):
     # convoluted check becouse this has to be just an ident
-    self.assertEquals(b_nand(token[0], TT_INFO_MASK), TT_Ident)
+    self.assertEqual(b_nand(token[0], TT_INFO_MASK), TT_Ident)
 
 
 class FlattenTree(unittest.TestCase):

@@ -1,6 +1,7 @@
 from typing import Tuple, Any, Iterable
 from copy import deepcopy
 from expression_parser import (
+    RESERVED_IDENTITIES,
     TT_RESERVED_1,
     TT_Equ,
     TT_Exponent,
@@ -16,6 +17,8 @@ from expression_parser import (
     TT_Sub,
     TT_Tokens,
     TT_INFO_MASK,
+    TT_Func,
+    TT_Comma,
 )
 
 TT_Atom = TT_RESERVED_1
@@ -55,15 +58,19 @@ class Float(Atom):
         self.token_type = token[0]
         self.value = float(token[1])
 
+
 class Function(Atom):
     value: str
     parameters = Iterable[Atom]
 
-    def __init__(self, token: Tuple[int, str], *parameters: Iterable[Atom]) -> None:
+    def __init__(self, token: Tuple[int, str], parameters: Iterable[Atom]) -> None:
         super().__init__()
         self.token_type = token[0]
         self.value = token[1]
         self.parameters = parameters
+
+    def __str__(self) -> str:
+        return parsed_to_string(flatten_tree(self))
 
 class Operation(Atom):
     right: Atom
@@ -138,11 +145,53 @@ def build_tree(tokens: Iterable[Tuple[int, Any]]) -> Atom:
     # TODO: add support for bracketed information should build a tree and attach the head as node
     # but can't be bothered right
 
+    if len(tokens) == 1:
+        # The below thing fails if there is a problem
+        return _create_atom(tokens[0])
+
+    i = 0
+    while i < len(tokens) and len(tokens) > 0:
+        token = tokens[i]
+
+        if token[0] & TT_Func:
+            # read the next parameters
+            if i + 1 < len(tokens):
+                parameters: Iterable[Atom]
+                next_token = tokens[i + 1]
+                if next_token[0] & TT_Tokens:
+                    # (2, 1, 4, 5)
+                    sub_tokens = next_token[1]
+                    parameters = []
+
+                    # sub tokens split for comma
+                    j = 0
+                    k = 0
+                    while j < len(sub_tokens):
+                        if sub_tokens[j][0] & TT_Comma:
+                            if j == 0:
+                                raise ValueError
+
+                            parameters.append(build_tree(sub_tokens[k:(j)]))
+                            k = j + 1
+                        j += 1
+                    else:
+                        parameters.append(build_tree(sub_tokens[k:]))
+                else:
+                    parameters = [_create_atom(next_token)]
+                    # remove the next token
+                print(parameters)
+                tokens.pop(i + 1)
+                # print(parameters)
+                tokens[i] = (TT_Atom, Function(token, parameters))
+            else:
+                raise ValueError
+
+        i += 1
+
     _do_operation((TT_Exponent))
     _do_operation((TT_Mult | TT_Div))
     _do_operation((TT_Add | TT_Sub))
     _do_operation(TT_Equ, Equals)
-
     if len(tokens) != 1:
         """
         something has gone terribly wrong,
@@ -169,7 +218,7 @@ def flatten_tree(node: Atom) -> Iterable[Tuple[int, str]]:
 
         if node.left.token_type & TT_Operation and (
             node.token_type & TT_INFO_MASK
-        ) >= (  # if division wasn't real ">" would suffice
+        ) >= (  # if division wasn't real ">" would suffice # TODO: add commutative flag and use that aswell
             node.left.token_type & TT_INFO_MASK
         ):
             left_tokens = [(TT_Tokens, left_tokens)]
@@ -179,6 +228,12 @@ def flatten_tree(node: Atom) -> Iterable[Tuple[int, str]]:
             right_tokens = [(TT_Tokens, right_tokens)]
 
         return [*left_tokens, token, *right_tokens]
+    elif isinstance(node, Function):
+        parameters = []
+        for param in node.parameters:
+            # dumb solution but can't be bothered to do actual thinking
+            parameters.extend([*flatten_tree(param), (RESERVED_IDENTITIES[","], ",")])
+        return [token, (TT_Tokens, parameters[:-1])]
 
     return [token]
 
