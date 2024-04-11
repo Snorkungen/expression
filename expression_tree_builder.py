@@ -2,9 +2,11 @@ from typing import Tuple, Any, Iterable
 from copy import deepcopy
 from expression_parser import (
     RESERVED_IDENTITIES,
+    TT_OOO_MASK,
     TT_RESERVED_1,
     TT_Equ,
     TT_Exponent,
+    TT_Operation_Commutative,
     parsed_to_string,
     TT_Operation,
     TT_Mult,
@@ -72,6 +74,7 @@ class Function(Atom):
     def __str__(self) -> str:
         return parsed_to_string(flatten_tree(self))
 
+
 class Operation(Atom):
     right: Atom
     left: Atom
@@ -104,15 +107,18 @@ def build_tree(tokens: Iterable[Tuple[int, Any]]) -> Atom:
             TT_Ident: Variable,
         }
 
-        if not token[0] in m:
-            if token[0] == TT_Atom:
+        # zero all info mask bits
+        token_type = token[0] ^ (token[0] & TT_INFO_MASK)
+
+        if not token_type in m:
+            if token_type == TT_Atom:
                 return token[1]
-            elif token[0] == TT_Tokens:
+            elif token_type == TT_Tokens:
                 return build_tree(token[1])
-            # this is for now becaus i could not be bothered
+            # this is for now because i could not be bothered
             raise ValueError
 
-        return m[token[0]](token)
+        return m[token_type](token)
 
     def _do_operation(test: int, OperAtom: Operation = Operation):
         i = 0
@@ -212,19 +218,32 @@ def flatten_tree(node: Atom) -> Iterable[Tuple[int, str]]:
     # TODO: rewrite to not rely on recursion, it feels "Yucky", I do not understand how this works
     token = (node.token_type, str(node.value))
 
+    # TODO: if int is negative wrap number in tokens
+
     if isinstance(node, Operation):
         left_tokens = flatten_tree(node.left)
         right_tokens = flatten_tree(node.right)
 
-        if node.left.token_type & TT_Operation and (
-            node.token_type & TT_INFO_MASK
-        ) >= (  # if division wasn't real ">" would suffice # TODO: add commutative flag and use that aswell
-            node.left.token_type & TT_INFO_MASK
+        if (
+            node.left.token_type & TT_Operation
+            and (node.token_type & TT_OOO_MASK)
+            >= (  # if division wasn't real ">" would suffice # TODO: add commutative flag and use that aswell
+                node.left.token_type & TT_OOO_MASK
+            )
+            and not (
+                node.token_type & TT_Operation_Commutative
+                and node.token_type & TT_OOO_MASK == node.left.token_type & TT_OOO_MASK
+            )
         ):
             left_tokens = [(TT_Tokens, left_tokens)]
-        if node.right.token_type & TT_Operation and (
-            node.token_type & TT_INFO_MASK
-        ) >= (node.right.token_type & TT_INFO_MASK):
+        if (
+            node.right.token_type & TT_Operation
+            and (node.token_type & TT_OOO_MASK) >= (node.right.token_type & TT_OOO_MASK)
+            and not (
+                node.token_type & TT_Operation_Commutative
+                and node.token_type & TT_OOO_MASK == node.right.token_type & TT_OOO_MASK
+            )
+        ):
             right_tokens = [(TT_Tokens, right_tokens)]
 
         return [*left_tokens, token, *right_tokens]

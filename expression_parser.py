@@ -26,6 +26,7 @@ TT_Numeric_Positive: Final = 1
 TT_Numeric_Negative: Final = 2
 
 TT_Operation: Final = 1 << 9
+TT_Operation_Commutative: Final = 1 << 3  # 8 0b1000
 
 """
     Encode order of operations into the Operation type
@@ -34,10 +35,11 @@ TT_Operation: Final = 1 << 9
     2. Multiplication & Division
     1. Addition & subtraction
 """
-TT_OOO_ADD: Final = 1  # 0b0001
-TT_OOO_Mult: Final = 2  # 0b0010
-TT_OOO_Expo: Final = 3  # 0b0011
-TT_OOO_Paren: Final = 4  # 0b0100 # this is superoflous, due to the TT_Tokens type
+TT_OOO_MASK: Final = 0b111
+TT_OOO_ADD: Final = 1  # 0b001
+TT_OOO_Mult: Final = 2  # 0b010
+TT_OOO_Expo: Final = 3  # 0b011
+TT_OOO_Paren: Final = 4  # 0b100 # this is superoflous, due to the TT_Tokens type
 
 TT_Add: Final = 1 << 10
 TT_Sub: Final = 1 << 11
@@ -59,9 +61,9 @@ TT_RESERVED_3: Final = 1 << 20
 """this type is reserved, and will not be used by the parser"""
 
 RESERVED_IDENTITIES = {
-    "+": TT_Add | TT_Operation | TT_Ident | TT_OOO_ADD,
+    "+": TT_Add | TT_Operation | TT_Operation_Commutative | TT_Ident | TT_OOO_ADD,
     "-": TT_Sub | TT_Operation | TT_Ident | TT_OOO_ADD,
-    "*": TT_Mult | TT_Operation | TT_Ident | TT_OOO_Mult,
+    "*": TT_Mult | TT_Operation | TT_Operation_Commutative | TT_Ident | TT_OOO_Mult,
     "/": TT_Div | TT_Operation | TT_Ident | TT_OOO_Mult,
     "=": TT_Equ | TT_Operation | TT_Ident,
     "^": TT_Exponent | TT_Operation | TT_Ident | TT_OOO_Expo,
@@ -70,7 +72,9 @@ RESERVED_IDENTITIES = {
 }
 
 
-def parse(input: str, RESERVED_IDENTITIES=RESERVED_IDENTITIES) -> Iterable[Tuple[int, Any]]:
+def parse(
+    input: str, RESERVED_IDENTITIES=RESERVED_IDENTITIES
+) -> Iterable[Tuple[int, Any]]:
     tokens: list[Tuple[int, Any]] = []
     tokens_positions = []
     token_type = 0
