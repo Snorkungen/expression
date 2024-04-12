@@ -1,10 +1,12 @@
 from typing import Union
 from expression_parser import (
     RESERVED_IDENTITIES,
+    TT_INFO_MASK,
     TT_Float,
     TT_Ident,
     TT_Operation,
     TT_Operation_Commutative,
+    TT_Sub,
     parse,
     TT_Add,
     TT_Mult,
@@ -28,6 +30,8 @@ def simplify(node: Atom) -> Atom:
     if isinstance(node, Operation):
         if node.token_type & TT_Add:
             return simplify_addition(node)
+        if node.token_type & TT_Sub:
+            return simplify_subtraction(node)
         if node.token_type & TT_Mult:
             return simplify_multiplication(node)
 
@@ -39,10 +43,29 @@ def simplify_multiplication(node: Atom) -> Atom:
     assert node.token_type & TT_Mult > 0
     # just for the vibes
 
-    if isinstance(node.right, Int) and node.right.value == 1:
+    if (node.right.token_type & TT_Numeric and node.right.value == 0) or (
+        node.left.token_type & TT_Numeric and node.left.value == 0
+    ):
+        return Int((TT_Int | TT_Numeric, "0"))
+
+    if node.right.token_type & TT_Numeric and node.right.value == 1:
         return node.left
-    if isinstance(node.left, Int) and node.left.value == 1:
+    if node.left.token_type & TT_Numeric and node.left.value == 1:
         return node.right
+
+    if isinstance(node.right, Int) and node.right.value == -1:
+        # how would i do it
+        left = simplify(node.left)
+
+        if left.token_type & TT_Numeric:
+            value = left.value * -1
+            token_type = left.token_type
+
+            # zero out the sign flags
+            token_type = (token_type | TT_INFO_MASK) ^ TT_INFO_MASK
+            token_type |= TT_Numeric_Negative if value < 0 else TT_Numeric_Positive
+
+            return (left).__class__((token_type, str(value)))
 
     return node
 
@@ -225,61 +248,54 @@ def simplify_addition(node: Atom) -> Atom:
     return terms[0]
 
 
-def print_simplification_status(node: Atom, expected: str):
+def simplify_subtraction(node: Atom) -> Atom:
+    assert isinstance(node, Operation)
+    assert node.token_type & TT_Sub > 0
+    """
+            -
+        -       c
+    a      b
+
+            +
+        *               +
+    -1      c       *        a
+                -1      b
+    """
+
+    left = node.right # swap left and right
+
+    # multiply left node with -1
+    left = simplify_multiplication(
+        Operation(
+            (RESERVED_IDENTITIES["*"], "*"),
+            left,
+            Int(((TT_Int | TT_Numeric | TT_Numeric_Negative), "-1")),
+        )
+    )
+
+    right = simplify(node.left)
+
+    node = Operation((RESERVED_IDENTITIES["+"], "+"), left, right)
+
+    return simplify_addition(node)
+
+
+def print_simplification_status(node: Atom, expected: str, s=simplify_subtraction):
+    if __name__ != "__main__":
+        return
     if not expected:
         expected = str(node)
 
-    simplified = simplify_addition(node)
+    simplified = s(node)
     print(node, "=>", simplified, f"[{str(simplified) == expected}]")
 
 
-node = build_tree(parse("2 + 2 + 2 + a"))
-print_simplification_status(node, "a + 6")
+node = build_tree(parse("2 - 2"))
+print_simplification_status(node, "0")  #   0
 
-node = build_tree(parse("2 + (-5)"))
-print_simplification_status(node, "-3")
+node = build_tree(parse("2 - 2 - 2"))  # -2 + 2 - 2 => -2 + -2 + 2
+print_simplification_status(node, "-2")
 
-node = build_tree(parse("(-2) + 5"))
-print_simplification_status(node, "3")
-
-node = build_tree(parse("a + a"))
-print_simplification_status(node, "2 * a")
-
-node = build_tree(parse("a + a + a + a"))
-print_simplification_status(node, "4 * a")
-
-node = build_tree(parse("1 + a + 1 + a + a + 1"))
-print_simplification_status(node, "3 * a + 3")
-
-node = build_tree(parse("2 + 2 + 3 + 2"))
-print_simplification_status(node, "9")
-
-node = build_tree(parse("2 + 2 + a"))
-print_simplification_status(node, "a + 4")
-
-node = build_tree(parse("2 + a + 2"))
-print_simplification_status(node, "a + 4")
-
-node = build_tree(parse("a + a + 2"))
-print_simplification_status(node, "2 * a + 2")
-
-node = build_tree(parse("2 + a + a"))
-print_simplification_status(node, "2 * a + 2")  # the reason why is arbitrary
-
-node = build_tree(parse("2 + a + a + 2"))
-print_simplification_status(node, "2 * a + 4")
-
-node = build_tree(parse("2 + (2 + 2)"))
-print_simplification_status(node, "6")
-
-node = build_tree(parse("a + 2 * a"))
-print_simplification_status(node, "3 * a")
-
-node = build_tree(parse("2 + 2 +  a + a + (2 + a + (3 * a + 3))"))
-print_simplification_status(node, "6 * a + 9")
-
-node = build_tree(parse("3 * a + a *2 + 1 + 1"))
-print_simplification_status(node, "5 * a + 2")
-
-node = build_tree(parse("1 + 1/2 + 1 + a + a"))
-print_simplification_status(node, "2 * a + 1 / 2 + 2")
+# TODO: do solve multiplication
+node = build_tree(parse("-a - 2 - a - 4 * a"))  # -2 + 2 - 2 => -2 + -2 + 2
+print_simplification_status(node, "-6 * a + -2")
