@@ -1,6 +1,10 @@
+from typing import Union
 from expression_parser import (
     RESERVED_IDENTITIES,
+    TT_Float,
     TT_Ident,
+    TT_Operation,
+    TT_Operation_Commutative,
     parse,
     TT_Add,
     TT_Mult,
@@ -8,6 +12,7 @@ from expression_parser import (
     TT_Numeric,
     TT_Numeric_Negative,
     TT_Numeric_Positive,
+    TT_OOO_MASK,
 )
 from expression_tree_builder import (
     Atom,
@@ -19,245 +24,205 @@ from expression_tree_builder import (
 )
 
 
+def simplify(node: Atom) -> Atom:
+    if isinstance(node, Operation):
+        if node.token_type & TT_Add:
+            return simplify_addition(node)
+        if node.token_type & TT_Mult:
+            return simplify_multiplication(node)
+
+    return node
+
+
+def simplify_multiplication(node: Atom) -> Atom:
+    assert isinstance(node, Operation)
+    assert node.token_type & TT_Mult > 0
+    # just for the vibes
+
+    if isinstance(node.right, Int) and node.right.value == 1:
+        return node.left
+    if isinstance(node.left, Int) and node.left.value == 1:
+        return node.right
+
+    return node
+
+
 def simplify_addition(node: Atom) -> Atom:
     assert isinstance(node, Operation)
     assert node.token_type & TT_Add > 0
 
-    left = node.left
-    right = node.right
+    # first collect terms
+    """
+        +
+    2       +
+        a       +
+            a       2
 
-    if isinstance(right, Operation) and right.token_type & TT_Add:
-        right = simplify_addition(node.right)
+    2 + (a + (a + 2))
+    2 + a + a + 2
+    a + a + 2 + 2
+    a + a + 4
+    2 * a + 4
+    """
+    # terms can be collected due to law of Associative property
+    terms = list[Atom]()  # create an empty list
 
-        while isinstance(right, Operation) and right.token_type & TT_Add:
-            left = Operation((node.token_type, node.value), left, right.left)
-            right = right.right
-        # i wonder if this is a infinite loop
-
-    node = Operation((node.token_type, node.value), left, right)
-
-    # First easy add two integers
-    if isinstance(node.left, Int) and isinstance(node.right, Int):
-        value = node.left.value + node.right.value
-        token_type = TT_Numeric | TT_Int
-        # below set the token type to be explicitly Positive or Negative
-        if value < 0:
-            token_type |= TT_Numeric_Negative
+    # walk the tree and collect terms
+    nodes = [node.left, node.right]
+    while len(nodes) > 0:
+        sub_node = nodes.pop()
+        if isinstance(sub_node, Operation) and sub_node.token_type & TT_Add:
+            nodes.extend((sub_node.right, sub_node.left))
         else:
-            token_type |= TT_Numeric_Positive
-        return Int((token_type, str(value)))
+            terms.append(sub_node)
+        del sub_node
+    i = 0
+    # loop through the terms and combine terms
+    while i < len(terms):
+        term = simplify(terms[i])
 
-    # second easy add two same variables
-    if (
-        isinstance(node.left, Variable)
-        and isinstance(node.right, Variable)
-        and compare_varible(node.left, node.right)
-    ):
-        left = Int((TT_Numeric | TT_Int | TT_Numeric_Positive, "2"))  # the value is two
-        return Operation((RESERVED_IDENTITIES["*"], "*"), left, node.right)
+        if term.token_type & TT_Numeric:
+            if not isinstance(term, Int):
+                i += 1
+                continue
+            # in future check if it is possible to coerce the value to an Int or something else
 
-    # special case 2*a + 2*a = 4*a
-    if (
-        isinstance(node.left, Operation)
-        and node.left.token_type & TT_Mult
-        and isinstance(node.right, Operation)
-        and node.right.token_type & TT_Mult
-    ):
-        if (
-            isinstance(node.left.right, Variable)
-            and isinstance(node.right.right, Variable)
-            and compare_varible(node.left.right, node.right.right)
+            sum = term.value
+            j = i + 1
+            # for simplicity just loop throug and find integers
+            while j < len(terms):
+                sub_term = simplify(terms[j])
+                if sub_term.token_type & TT_Numeric and isinstance(sub_term, Int):
+                    # in future check if it is possible to coerce the value to an Int or something else
+                    sum += sub_term.value
+                    terms.pop(j)
+                else:
+                    j += 1
+
+            token_type = TT_Int | TT_Numeric
+            token_type |= TT_Numeric_Negative if sum < 0 else TT_Numeric_Positive
+
+            terms[i] = Int((token_type, str(sum)))
+
+        elif (
+            isinstance(term, Variable)
+            or isinstance(term, Operation)
+            and term.token_type & TT_Mult
+            and (isinstance(term.right, Variable) or isinstance(term.left, Variable))
         ):
-            return Operation(
-                (node.left.token_type, node.left.value),
-                simplify_addition(
-                    Operation((node.token_type, node.value), left.left, node.right.left)
-                ),
-                left.right,
+            if isinstance(term, Variable):
+                variable = term
+                values = [Int((TT_Int | TT_Numeric | TT_Numeric_Positive, "1"))]
+            else:
+                # NOTE: this might have some unforseen side-effects
+                if isinstance(term.right, Variable):
+                    variable = term.right
+                    values = [term.left]
+                elif isinstance(term.left, Variable):
+                    variable = term.left
+                    values = [term.right]
+                else:
+                    raise "this should not happen"
+            # this allows for checking (a + (2 * a)) or (a * 2) + a
+            j = i + 1
+
+            while j < len(terms):
+                sub_term = simplify(terms[j])
+                # todo add to "k * x"
+                if compare_varible(variable, sub_term):
+                    values.append(Int((TT_Int | TT_Numeric | TT_Numeric_Positive, "1")))
+                    terms.pop(j)
+                    continue
+                elif isinstance(sub_term, Operation) and sub_term.token_type & TT_Mult:
+                    # check that one node on the is the variable
+                    if isinstance(sub_term.right, Variable) and compare_varible(
+                        sub_term.right, variable
+                    ):
+                        values.append(sub_term.left)
+                        terms.pop(j)
+                        continue
+                    if isinstance(sub_term.left, Variable) and compare_varible(
+                        sub_term.left, variable
+                    ):
+                        values.append(sub_term.right)
+                        terms.pop(j)
+                        continue
+                j += 1
+
+            if len(values) < 2:
+                count = values[0]
+            else:
+                count = Operation((RESERVED_IDENTITIES["+"], "+"), values[0], values[1])
+                sub_node = count
+                for j in range(2, len(values)):
+                    sub_node.left = Operation(
+                        (RESERVED_IDENTITIES["+"], "+"), values[j], sub_node.left
+                    )
+                    sub_node = sub_node.left
+
+                count = simplify(count)
+
+            terms[i] = simplify(
+                # the simplyfy call is due is is to do a final check
+                Operation((RESERVED_IDENTITIES["*"], "*"), count, variable)
             )
 
-        if (
-            isinstance(node.left.right, Variable)
-            and isinstance(node.right.left, Variable)
-            and compare_varible(node.left.right, node.right.left)
-        ):
-            return Operation(
-                (node.left.token_type, node.left.value),
-                simplify_addition(
-                    Operation(
-                        (node.token_type, node.value), left.left, node.right.right
-                    )
-                ),
-                left.right,
-            )
+        i += 1
 
-        if (
-            isinstance(node.left.left, Variable)
-            and isinstance(node.right.left, Variable)
-            and compare_varible(node.left.left, node.right.left)
-        ):
-            return Operation(
-                (node.left.token_type, node.left.value),
-                simplify_addition(
-                    Operation(
-                        (node.token_type, node.value), left.right, node.right.right
-                    )
-                ),
-                left.left,
-            )
+    # use the same strategy as tree builder
+    # but in reality i would like to do some sorting of the values so
 
-        if (
-            isinstance(node.left.left, Variable)
-            and isinstance(node.right.right, Variable)
-            and compare_varible(node.left.left, node.right.right)
-        ):
-            return Operation(
-                (node.left.token_type, node.left.value),
-                simplify_addition(
-                    Operation(
-                        (node.token_type, node.value), left.right, node.right.left
-                    )
-                ),
-                left.left,
-            )
+    if len(terms) == 1:
+        return terms[0]
 
-        return node
+    # I can't be bothered to do this better
+    # an implementation of bubble sort
+    # the below stuff seems generic enough to be reused
+    def __swap(i, j):
+        tmp = terms[i]
+        terms[i] = terms[j]
+        terms[j] = tmp
 
-    # assume the the depth is 2 1-based
-    # and move the variable
+    for i in range(len(terms)):
+        for j in range(len(terms) - i - 1):
+            next_term = terms[j + 1]
+            term = terms[j]
 
-    if isinstance(node.left, Operation):
-        # this is some duplication but it is a special case
-        if isinstance(right, Variable):
-            # check specifically that the right is n * x and left is x
-            if node.left.token_type & TT_Add:
-                left = simplify_addition(left)
+            if isinstance(next_term, Operation):
+                if term.token_type & TT_Operation and (
+                    (next_term.token_type & TT_OOO_MASK)
+                    < (term.token_type & TT_OOO_MASK)
+                    or (next_term.token_type & TT_Operation_Commutative)
+                    < (term.token_type & TT_Operation_Commutative)
+                ):
+                    continue
 
-            if left.token_type & TT_Add:
-                tmp = right
-                if compare_varible(left.right, right):
-                    right = left.left
-                    left = Operation(
-                        (RESERVED_IDENTITIES["+"], "+"), left.right, tmp
-                    )
-                elif compare_varible(left.left, right):
-                    right = left.right
-                    left = Operation((RESERVED_IDENTITIES["+"], "+"), left.left, tmp)
+                __swap(j, j + 1)
+            elif isinstance(next_term, Variable) and not isinstance(term, Variable):
+                __swap(j, j + 1)
+            elif next_term.token_type & TT_Int and term.token_type & TT_Float:
+                __swap(j, j + 1)
 
-                return Operation((node.token_type, node.value), simplify_addition(left),right)
+            # there should be some thinking for functions but can't be bothered right now
 
+    # reconstruct tree using the same strategy as tree_builder
+    i = 0
+    while i < len(terms) - 1:
+        term = terms[i]
+        next_term = terms[i + 1]
+        if term.token_type & TT_Add:
+            print("this branch should not be touched")
+            continue  # assume that this is an a node that has been touched already
 
-            if left.token_type & TT_Mult:
-                if compare_varible(left.right, right) and isinstance(left.left, Int):
-                    tmp = Int((TT_Numeric | TT_Int | TT_Numeric_Positive, "1"))
-                    left.left = Operation(
-                        (RESERVED_IDENTITIES["+"], "+"), left.left, tmp
-                    )
-                    left.left = simplify_addition(left.left)
-                    return left
-                if compare_varible(left.left, right) and isinstance(left.right, Int):
-                    tmp = Int((TT_Numeric | TT_Int | TT_Numeric_Positive, "1"))
-                    left.right = Operation(
-                        (RESERVED_IDENTITIES["+"], "+"), left.right, tmp
-                    )
-                    left.right = simplify_addition(left.left)
-                    return left
+        terms[i] = Operation((RESERVED_IDENTITIES["+"], "+"), term, next_term)
+        terms.pop(i + 1)
 
-        if not node.left.token_type & TT_Add:
-            return node
+        i += 1
+    else:
+        if len(terms) == 2:
+            terms[0] = Operation((RESERVED_IDENTITIES["+"], "+"), terms[0], terms[1])
 
-        # this is where the recursion occurs
-
-        left = simplify_addition(node.left)
-
-        if isinstance(left, Int):
-            node = Operation((node.token_type, node.value), left, node.right)
-
-            if right.token_type & TT_Ident:
-                return node
-
-            if isinstance(right, Int):
-                return simplify_addition(node)
-
-        if isinstance(left, Operation) and left.token_type == node.token_type:
-            # here check that the depth of left is 1
-            if not (
-                isinstance(left.left, Operation) or isinstance(left.right, Operation)
-            ):
-                # swap some stuff
-
-                if isinstance(right, Int):
-                    # check on what side the identity is on
-                    if left.left.token_type & TT_Ident:
-                        # the identity is on the left side
-                        tmp = left.left
-                        right = Operation(
-                            (left.token_type, left.value), left.right, right
-                        )
-                    else:
-                        # the identity is on the right side
-                        tmp = left.right
-                        right = Operation(
-                            (left.token_type, left.value), left.left, right
-                        )
-
-                    right = simplify_addition(right)
-                    left = tmp
-
-                if right.token_type & TT_Ident:
-                    if isinstance(left.left, Int):
-                        # the int is on the left side
-                        tmp = left.left
-                        right = Operation(
-                            (left.token_type, left.value), left.right, right
-                        )
-                    else:
-                        # the int is on the right side
-                        tmp = left.right
-                        right = Operation(
-                            (left.token_type, left.value), left.left, right
-                        )
-
-                    left = simplify_addition(right)
-                    right = tmp
-
-        if isinstance(right, Variable):
-            tmp = right
-
-            if not (left.right.token_type & TT_Ident):
-                right = left.right
-                left.right = tmp
-            elif not (left.left.token_type & TT_Ident):
-                right = left.left
-                left.left = tmp
-
-            left = simplify_addition(left)
-
-        if right.token_type & TT_Numeric:
-            if isinstance(left, Operation) and left.token_type & TT_Add:
-
-                if left.right.token_type & TT_Numeric:
-                    tmp = left.right
-                    left = left.left
-                    right = Operation((node.token_type, node.value), tmp, right)
-                    right = simplify_addition(right)
-    elif isinstance(node.right, Operation):
-        # swap and try again, I have no clue as to what is going on
-        return simplify_addition(
-            Operation(
-                (node.token_type, node.value),
-                Operation(
-                    (node.right.token_type, node.right.value),
-                    node.right.left,
-                    node.right.right,
-                ),
-                left,
-            )
-        )
-
-    node = Operation((node.token_type, node.value), left, right)
-
-    return node
+    return terms[0]
 
 
 def print_simplification_status(node: Atom, expected: str):
@@ -268,8 +233,8 @@ def print_simplification_status(node: Atom, expected: str):
     print(node, "=>", simplified, f"[{str(simplified) == expected}]")
 
 
-node = build_tree(parse("2 + 2"))
-print_simplification_status(node, "4")
+node = build_tree(parse("2 + 2 + 2 + a"))
+print_simplification_status(node, "a + 6")
 
 node = build_tree(parse("2 + (-5)"))
 print_simplification_status(node, "-3")
@@ -290,7 +255,7 @@ node = build_tree(parse("2 + 2 + 3 + 2"))
 print_simplification_status(node, "9")
 
 node = build_tree(parse("2 + 2 + a"))
-print_simplification_status(node, "4 + a")
+print_simplification_status(node, "a + 4")
 
 node = build_tree(parse("2 + a + 2"))
 print_simplification_status(node, "a + 4")
@@ -307,11 +272,14 @@ print_simplification_status(node, "2 * a + 4")
 node = build_tree(parse("2 + (2 + 2)"))
 print_simplification_status(node, "6")
 
-node = build_tree(parse("2 + 2 + a + (2 + a + (3 *a + 3))"))
-print_simplification_status(node, "5 * a + 9")
+node = build_tree(parse("a + 2 * a"))
+print_simplification_status(node, "3 * a")
 
-node = build_tree(parse("2 * a + a *2 "))
-print_simplification_status(node, "4 * a")
+node = build_tree(parse("2 + 2 +  a + a + (2 + a + (3 * a + 3))"))
+print_simplification_status(node, "6 * a + 9")
+
+node = build_tree(parse("3 * a + a *2 + 1 + 1"))
+print_simplification_status(node, "5 * a + 2")
 
 node = build_tree(parse("1 + 1/2 + 1 + a + a"))
 print_simplification_status(node, "2 * a + 1 / 2 + 2")
