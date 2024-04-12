@@ -53,21 +53,96 @@ def simplify_multiplication(node: Atom) -> Atom:
     if node.left.token_type & TT_Numeric and node.left.value == 1:
         return node.right
 
-    if isinstance(node.right, Int) and node.right.value == -1:
-        # how would i do it
-        left = simplify(node.left)
+    factors = list[Atom]()
 
-        if left.token_type & TT_Numeric:
-            value = left.value * -1
-            token_type = left.token_type
+    nodes = [node.left, node.right]
+    while len(nodes) > 0:
+        sub_node = nodes.pop()
+        if isinstance(sub_node, Operation) and sub_node.token_type & TT_Mult:
+            nodes.extend((sub_node.left, sub_node.right))
+        else:
+            factors.append(
+                # simplify already here at ingestion to save progress
+                simplify(sub_node)
+            )
+    else:
+        del sub_node
 
-            # zero out the sign flags
-            token_type = (token_type | TT_INFO_MASK) ^ TT_INFO_MASK
-            token_type |= TT_Numeric_Negative if value < 0 else TT_Numeric_Positive
+    # combine similar factors
+    i = 0
+    while i < len(factors):
+        # simplify can coerce Floats to Int if possible
+        factor = factors[i]
 
-            return (left).__class__((token_type, str(value)))
+        # accumulate integers
+        if isinstance(factor, Int):
+            accumulator = factor.value
+            j = i + 1
+            while j < len(factors):
+                sub_factor = factors[j]  # all factors are simplified at ingestion
+                # yet again simplify can work on coercing floats
 
-    return node
+                if isinstance(sub_factor, Int):
+                    accumulator *= sub_factor.value
+                    factors.pop(j) # remove to remove the correct index
+                else:
+                    j += 1
+
+            token_type = TT_Int | TT_Numeric
+            token_type |= TT_Numeric_Negative if accumulator < 0 else TT_Numeric_Positive
+
+            factors[i] = Int((token_type, str(accumulator)))
+
+        i += 1
+
+    if len(factors) == 1:
+        return factors[0]
+
+    # I can't be bothered to do this better
+    # an implementation of bubble sort
+    # the below stuff seems generic enough to be reused
+    def __swap(i, j):
+        tmp = factors[i]
+        factors[i] = factors[j]
+        factors[j] = tmp
+
+    for i in range(len(factors)):
+        for j in range(len(factors) - i - 1):
+            next_factor = factors[j + 1]
+            factor = factors[j]
+
+            if isinstance(next_factor, Operation):
+                if factor.token_type & TT_Operation and (
+                    (next_factor.token_type & TT_OOO_MASK)
+                    < (factor.token_type & TT_OOO_MASK)
+                    or (next_factor.token_type & TT_Operation_Commutative)
+                    < (factor.token_type & TT_Operation_Commutative)
+                ):
+                    continue
+
+                __swap(j, j + 1)
+            elif isinstance(factor, Variable) and not isinstance(next_factor, Variable):
+                __swap(j, j + 1)
+            elif next_factor.token_type & TT_Int and factor.token_type & TT_Float:
+                __swap(j, j + 1)
+
+    i = 0
+    while i < len(factors) - 1:
+        factor = factors[i]
+        next_factor = factors[i + 1]
+        if factor.token_type & TT_Mult:
+            print("this brach should not be touched")
+            raise RuntimeError
+        
+        factors[i] = Operation((RESERVED_IDENTITIES["*"], "*"), factor, next_factor)
+        factors.pop(i + 1)
+
+        i += 1
+    else:
+        if len(factors) == 2:
+            factors[0] =  Operation((RESERVED_IDENTITIES["*"], "*"), factors[0], factors[i])
+
+    return factors[0]
 
 
 def simplify_addition(node: Atom) -> Atom:
@@ -262,7 +337,7 @@ def simplify_subtraction(node: Atom) -> Atom:
                 -1      b
     """
 
-    left = node.right # swap left and right
+    left = node.right  # swap left and right
 
     # multiply left node with -1
     left = simplify_multiplication(
@@ -290,12 +365,8 @@ def print_simplification_status(node: Atom, expected: str, s=simplify_subtractio
     print(node, "=>", simplified, f"[{str(simplified) == expected}]")
 
 
-node = build_tree(parse("2 - 2"))
-print_simplification_status(node, "0")  #   0
+node = build_tree(parse("2 * 4 * -1"))
+print_simplification_status(node, "-8", simplify_multiplication)
 
-node = build_tree(parse("2 - 2 - 2"))  # -2 + 2 - 2 => -2 + -2 + 2
-print_simplification_status(node, "-2")
-
-# TODO: do solve multiplication
-node = build_tree(parse("-a - 2 - a - 4 * a"))  # -2 + 2 - 2 => -2 + -2 + 2
-print_simplification_status(node, "-6 * a + -2")
+node = build_tree(parse("4 * a * -1"))
+print_simplification_status(node, "-4 * a", simplify_multiplication)

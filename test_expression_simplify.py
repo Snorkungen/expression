@@ -80,6 +80,16 @@ class Addition(unittest.TestCase):
         self.assertEqual(str(simplified), "-2")
 
 
+class Multiplication (unittest.TestCase):
+    def test_initial (self):
+        node = build_tree(parse("2 * 4 * -1"))
+        simplified = simplify_multiplication(node)
+        self.assertEqual(str(simplified), "-8")
+
+        node = build_tree(parse("4 * a * -1"))
+        simplified = simplify_multiplication(node)
+        self.assertEqual(str(simplified), "-4 * a")
+
 class Subtraction(unittest.TestCase):
     def test_initial(self):
         node = build_tree(parse("2 - 2"))
