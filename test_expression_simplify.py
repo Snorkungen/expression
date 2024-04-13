@@ -90,6 +90,23 @@ class Multiplication (unittest.TestCase):
         simplified = simplify_multiplication(node)
         self.assertEqual(str(simplified), "-4 * a")
 
+        node = build_tree(parse("a * 4 * -1"))
+        simplified = simplify_multiplication(node)
+        self.assertEqual(str(simplified), "-4 * a")
+
+        node = build_tree(parse("4 * a * -1 * a"))
+        simplified = simplify_multiplication(node)
+        self.assertEqual(str(simplified), "-4 * a ^ 2")
+
+        node = build_tree(parse("4 * a * b * -1 * a"))
+        simplified = simplify_multiplication(node)
+        self.assertEqual(str(simplified), "-4 * b * a ^ 2", "this could fail due to sorting of factors not doing a satisfactory job")
+
+        node = build_tree(parse("a * a ^ 2 * b * b"))
+        simplified = simplify_multiplication(node)
+        self.assertEqual(str(simplified), "b ^ 2 * a ^ 3")
+
+
 class Subtraction(unittest.TestCase):
     def test_initial(self):
         node = build_tree(parse("2 - 2"))
@@ -100,10 +117,9 @@ class Subtraction(unittest.TestCase):
         simplified = simplify_subtraction(node)
         self.assertEqual(str(simplified), "-2")
 
-        # TODO: do solve multiplication
         node = build_tree(parse("-a - 2 - a - 4 * a"))  # -2 + 2 - 2 => -2 + -2 + 2
         simplified = simplify_subtraction(node)
-        self.assertEqual(str(simplified), "-6 * a + -2", "This can fail because simplifying multiplication is not implemented yet.")
+        self.assertEqual(str(simplified), "-6 * a + -2")
 
 
 if __name__ == "__main__":

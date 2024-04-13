@@ -10,6 +10,7 @@ from expression_parser import (
     parse,
     TT_Add,
     TT_Mult,
+    TT_Exponent,
     TT_Int,
     TT_Numeric,
     TT_Numeric_Negative,
@@ -84,14 +85,67 @@ def simplify_multiplication(node: Atom) -> Atom:
 
                 if isinstance(sub_factor, Int):
                     accumulator *= sub_factor.value
-                    factors.pop(j) # remove to remove the correct index
+                    factors.pop(j)  # remove to remove the correct index
                 else:
                     j += 1
 
             token_type = TT_Int | TT_Numeric
-            token_type |= TT_Numeric_Negative if accumulator < 0 else TT_Numeric_Positive
+            token_type |= (
+                TT_Numeric_Negative if accumulator < 0 else TT_Numeric_Positive
+            )
 
             factors[i] = Int((token_type, str(accumulator)))
+        elif isinstance(factor, Variable) or (
+            isinstance(factor, Operation)
+            and factor.token_type & TT_Exponent
+            and isinstance(factor.left, Variable)
+        ):
+            if isinstance(factor, Variable):
+                variable = factor
+                values = [Int((TT_Int | TT_Numeric | TT_Numeric_Positive, "1"))]
+            else:
+                variable = factor.left
+                values = [factor.right]
+
+            j = i + 1
+            while j < len(factors):
+                sub_factor = factors[j]
+
+                if isinstance(sub_factor, Variable) and compare_varible(
+                    factors[j], variable
+                ):
+                    values.append(Int((TT_Int | TT_Numeric | TT_Numeric_Positive, "1")))
+                    factors.pop(j)
+                    continue
+                elif (
+                    isinstance(sub_factor, Operation)
+                    and sub_factor.token_type & TT_Exponent
+                    and compare_varible(sub_factor.left, variable)
+                ):
+                    print(variable, sub_factor, "E")
+                    values.append(sub_factor.right)
+                    factors.pop(j)
+                    continue
+                j += 1
+
+            if len(values) < 2:
+                count = values[0]
+            else:
+                count = Operation((RESERVED_IDENTITIES["+"], "+"), values[0], values[1])
+                sub_node = count
+                for j in range(2, len(values)):
+                    sub_node.left = Operation(
+                        (RESERVED_IDENTITIES["+"], "+"), values[j], sub_node.left
+                    )
+                    sub_node = sub_node.left
+
+                count = simplify(count)
+
+            # because i can't be bothered to simplify exp...
+            if isinstance(count, Int) and count.value == 1:
+                pass
+            else:
+                factors[i] = Operation((RESERVED_IDENTITIES["^"], "^"), variable, count)
 
         i += 1
 
@@ -111,17 +165,16 @@ def simplify_multiplication(node: Atom) -> Atom:
             next_factor = factors[j + 1]
             factor = factors[j]
 
-            if isinstance(next_factor, Operation):
-                if factor.token_type & TT_Operation and (
-                    (next_factor.token_type & TT_OOO_MASK)
-                    < (factor.token_type & TT_OOO_MASK)
-                    or (next_factor.token_type & TT_Operation_Commutative)
-                    < (factor.token_type & TT_Operation_Commutative)
-                ):
-                    continue
-
+            if isinstance(factor, Operation) and not isinstance(next_factor, Operation):
                 __swap(j, j + 1)
             elif isinstance(factor, Variable) and not isinstance(next_factor, Variable):
+                __swap(j, j + 1)
+            elif (
+                isinstance(factor, Variable)
+                and isinstance(next_factor, Operation)
+                and next_factor.token_type & TT_Exponent
+                and isinstance(next_factor.left, Operation)
+            ):
                 __swap(j, j + 1)
             elif next_factor.token_type & TT_Int and factor.token_type & TT_Float:
                 __swap(j, j + 1)
@@ -133,14 +186,16 @@ def simplify_multiplication(node: Atom) -> Atom:
         if factor.token_type & TT_Mult:
             print("this brach should not be touched")
             raise RuntimeError
-        
+
         factors[i] = Operation((RESERVED_IDENTITIES["*"], "*"), factor, next_factor)
         factors.pop(i + 1)
 
         i += 1
     else:
         if len(factors) == 2:
-            factors[0] =  Operation((RESERVED_IDENTITIES["*"], "*"), factors[0], factors[i])
+            factors[0] = Operation(
+                (RESERVED_IDENTITIES["*"], "*"), factors[0], factors[i]
+            )
 
     return factors[0]
 
@@ -368,5 +423,21 @@ def print_simplification_status(node: Atom, expected: str, s=simplify_subtractio
 node = build_tree(parse("2 * 4 * -1"))
 print_simplification_status(node, "-8", simplify_multiplication)
 
-node = build_tree(parse("4 * a * -1"))
+node = build_tree(parse("2 ^ 4 * 2 * 4"))
+print_simplification_status(node, "8 * 2 ^ 4", simplify_multiplication)
+
+node = build_tree(parse("a * 4 * -1"))
 print_simplification_status(node, "-4 * a", simplify_multiplication)
+
+node = build_tree(parse("4 * a * -1 * a"))
+print_simplification_status(node, "-4 * a ^ 2", simplify_multiplication)
+
+node = build_tree(parse("4 * a * b * -1 * a"))
+print_simplification_status(
+    node, "-4 * b * a ^ 2", simplify_multiplication
+)  # good enough, -4a²b instead of -4ba²
+
+node = build_tree(parse("a * a ^ 2 * b * b"))
+print_simplification_status(
+    node, "b ^ 2 * a ^ 3", simplify_multiplication
+)  # good enough, -4a²b instead of -4ba²
