@@ -73,7 +73,7 @@ class Addition(unittest.TestCase):
 
         node = build_tree(parse("1 + 1/2 + 1 + a + a"))
         simplified = simplify_addition(node)
-        self.assertEqual(str(simplified), "2 * a + 1 / 2 + 2")
+        self.assertEqual(str(simplified), "(2 * a + 1 / 2) + 2")
 
         node = build_tree(parse("-2 + (-2 + 2)"))
         simplified = simplify_addition(node)
@@ -100,7 +100,7 @@ class Multiplication (unittest.TestCase):
 
         node = build_tree(parse("4 * a * b * -1 * a"))
         simplified = simplify_multiplication(node)
-        self.assertEqual(str(simplified), "-4 * b * a ^ 2", "this could fail due to sorting of factors not doing a satisfactory job")
+        self.assertEqual(str(simplified), "(-4 * b) * a ^ 2", "this could fail due to sorting of factors not doing a satisfactory job")
 
         node = build_tree(parse("a * a ^ 2 * b * b"))
         simplified = simplify_multiplication(node)

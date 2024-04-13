@@ -185,9 +185,7 @@ def build_tree(tokens: Iterable[Tuple[int, Any]]) -> Atom:
                 else:
                     parameters = [_create_atom(next_token)]
                     # remove the next token
-                print(parameters)
                 tokens.pop(i + 1)
-                # print(parameters)
                 tokens[i] = (TT_Atom, Function(token, parameters))
             else:
                 raise ValueError
@@ -230,19 +228,19 @@ def flatten_tree(node: Atom) -> Iterable[Tuple[int, str]]:
             >= (  # if division wasn't real ">" would suffice # TODO: add commutative flag and use that aswell
                 node.left.token_type & TT_OOO_MASK
             )
-            and not (
-                node.token_type & TT_Operation_Commutative
-                and node.token_type & TT_OOO_MASK == node.left.token_type & TT_OOO_MASK
-            )
+            # and not (
+            #     node.token_type & TT_Operation_Commutative
+            #     and node.token_type & TT_OOO_MASK == node.left.token_type & TT_OOO_MASK
+            # )
         ):
             left_tokens = [(TT_Tokens, left_tokens)]
         if (
             node.right.token_type & TT_Operation
             and (node.token_type & TT_OOO_MASK) >= (node.right.token_type & TT_OOO_MASK)
-            and not (
-                node.token_type & TT_Operation_Commutative
-                and node.token_type & TT_OOO_MASK == node.right.token_type & TT_OOO_MASK
-            )
+            # and not (
+            #     node.token_type & TT_Operation_Commutative
+            #     and node.token_type & TT_OOO_MASK == node.right.token_type & TT_OOO_MASK
+            # )
         ):
             right_tokens = [(TT_Tokens, right_tokens)]
 
@@ -286,3 +284,4 @@ def is_variable_in_tree(root: Atom, node: Atom) -> bool:
 
 
 # TODO: write tests
+# TODO: write more compare functions

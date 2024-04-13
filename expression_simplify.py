@@ -1,13 +1,12 @@
 from typing import Union
 from expression_parser import (
     RESERVED_IDENTITIES,
-    TT_INFO_MASK,
+    TT_Div,
+    parse,
     TT_Float,
-    TT_Ident,
     TT_Operation,
     TT_Operation_Commutative,
     TT_Sub,
-    parse,
     TT_Add,
     TT_Mult,
     TT_Exponent,
@@ -25,6 +24,18 @@ from expression_tree_builder import (
     build_tree,
     compare_varible,
 )
+
+
+def __join_nodes_into_tree(node: Operation, nodes: list[Atom]) -> Operation:
+    """takes a root node and adds the nodes into the tree"""
+    sub_node = node
+    for j in range(len(nodes)):
+        sub_node.left = Operation(
+            (node.token_type, node.value), nodes[j], sub_node.left
+        )
+        sub_node = sub_node.left
+
+    return node
 
 
 def simplify(node: Atom) -> Atom:
@@ -146,6 +157,62 @@ def simplify_multiplication(node: Atom) -> Atom:
                 pass
             else:
                 factors[i] = Operation((RESERVED_IDENTITIES["^"], "^"), variable, count)
+        elif isinstance(factor, Operation) and factor.token_type & TT_Div:
+            # this should be somehow integrated into the first check
+            # where 2 * (1 / 2) = 2 / 1 * (1 / 2)
+
+            # I do not know this branch is all consuming and just converts the whole multiplication into a divison operation
+
+            dividends = [factor.left]
+            divisors = [factor.right]
+
+            j = 0
+            while j < len(factors):
+                sub_factor = factors[j]
+
+                if sub_factor == factor:
+                    # the memory addresses are the same
+                    j += 1
+                    continue
+                    raise RuntimeError("If this happens there is a bug somewhere")
+                
+                # print(factor, sub_factor, list(map(str, factors)))
+                if isinstance(sub_factor, Operation) and sub_factor.token_type & TT_Div:
+                    dividends.append(sub_factor.left)
+                    divisors.append(sub_factor.right)
+                else:
+                    dividends.append(sub_factor)
+
+                factors.pop(j)
+
+                if j < i:
+                    j+= 1
+
+            if len(dividends) < 2:
+                dividend = dividends[0]
+            else:
+                dividend = Operation(
+                    (RESERVED_IDENTITIES["*"], "*"), dividends[0], dividends[1]
+                )
+
+                dividend = __join_nodes_into_tree(dividend, dividends[2:])
+                # simplify_division will simplify multiplication
+
+            # print(list(map(str, divisors)), factor)
+            if len(divisors) < 2:
+                divisor = divisors[0]
+            else:
+                divisor = Operation(
+                    (RESERVED_IDENTITIES["*"], "*"), divisors[0], divisors[1]
+                )  # simplify_division will simplify multiplication
+
+                divisor = __join_nodes_into_tree(divisor, divisors[2:])
+                # simplify_division will simplify multiplication
+
+            # if there is a division it consumes all factors and spits out some other stuff
+            return simplify_division(
+                Operation((RESERVED_IDENTITIES["/"], "/"), dividend, divisor)
+            )
 
         i += 1
 
@@ -410,6 +477,10 @@ def simplify_subtraction(node: Atom) -> Atom:
     return simplify_addition(node)
 
 
+def simplify_division(node: Atom) -> Atom:
+    return node
+
+
 def print_simplification_status(node: Atom, expected: str, s=simplify_subtraction):
     if __name__ != "__main__":
         return
@@ -420,24 +491,17 @@ def print_simplification_status(node: Atom, expected: str, s=simplify_subtractio
     print(node, "=>", simplified, f"[{str(simplified) == expected}]")
 
 
-node = build_tree(parse("2 * 4 * -1"))
-print_simplification_status(node, "-8", simplify_multiplication)
+node = build_tree(parse("(a / 3) * 3"))
+print_simplification_status(node, "(a * 3) / 3", simplify_multiplication)
 
-node = build_tree(parse("2 ^ 4 * 2 * 4"))
-print_simplification_status(node, "8 * 2 ^ 4", simplify_multiplication)
+node = build_tree(parse("(a / 3) * 3 * (1 / 4)"))
+print_simplification_status(node, "((a * 1) * 3) / (4 * 3)", simplify_multiplication)
 
-node = build_tree(parse("a * 4 * -1"))
-print_simplification_status(node, "-4 * a", simplify_multiplication)
+node = build_tree(parse("(a / 3) * 3"))
+print_simplification_status(node, "(a * 3) / 3", simplify_multiplication)
 
-node = build_tree(parse("4 * a * -1 * a"))
-print_simplification_status(node, "-4 * a ^ 2", simplify_multiplication)
+node = build_tree(parse("(a / 3) * 3 * 4")) # the reason for why it is twelve because the factors are read from right to left
+print_simplification_status(node, "(a * 12) / 3", simplify_multiplication)
 
-node = build_tree(parse("4 * a * b * -1 * a"))
-print_simplification_status(
-    node, "-4 * b * a ^ 2", simplify_multiplication
-)  # good enough, -4a²b instead of -4ba²
-
-node = build_tree(parse("a * a ^ 2 * b * b"))
-print_simplification_status(
-    node, "b ^ 2 * a ^ 3", simplify_multiplication
-)  # good enough, -4a²b instead of -4ba²
+node = build_tree(parse("(a / 3) * (3 / a) * 4")) # the flattening of nodes is not working properly
+print_simplification_status(node, "((a * 3) * 4) / (a * 3)", simplify_multiplication)
