@@ -1,4 +1,4 @@
-from typing import Union
+from typing import Iterable, Union
 from expression_parser import (
     RESERVED_IDENTITIES,
     TT_Div,
@@ -61,9 +61,9 @@ def simplify_multiplication(node: Atom) -> Atom:
         return Int((TT_Int | TT_Numeric, "0"))
 
     if node.right.token_type & TT_Numeric and node.right.value == 1:
-        return node.left
+        return simplify(node.left)
     if node.left.token_type & TT_Numeric and node.left.value == 1:
-        return node.right
+        return simplify(node.right)
 
     factors = list[Atom]()
 
@@ -175,7 +175,7 @@ def simplify_multiplication(node: Atom) -> Atom:
                     j += 1
                     continue
                     raise RuntimeError("If this happens there is a bug somewhere")
-                
+
                 # print(factor, sub_factor, list(map(str, factors)))
                 if isinstance(sub_factor, Operation) and sub_factor.token_type & TT_Div:
                     dividends.append(sub_factor.left)
@@ -186,7 +186,7 @@ def simplify_multiplication(node: Atom) -> Atom:
                 factors.pop(j)
 
                 if j < i:
-                    j+= 1
+                    j += 1
 
             if len(dividends) < 2:
                 dividend = dividends[0]
@@ -477,8 +477,256 @@ def simplify_subtraction(node: Atom) -> Atom:
     return simplify_addition(node)
 
 
+def __get_factors(value: int) -> Iterable[Int]:
+    values: list[Int] = [
+        # Int((TT_Int | TT_Numeric | TT_Numeric_Positive, str(1)))
+    ]  # 1 is assumed but also known so it is unnessecery
+
+    if 0 > value:
+        # value is negative
+        values.append(Int((TT_Int | TT_Numeric | TT_Numeric_Negative, str(-1))))
+        value = value * -1
+
+    if 1 == value:
+        # I do not know if this is the right way to go but 1 is always a factor
+        return values
+
+    # a better more efficent algo... probably exists due to all of this being a solved problem
+    divisor = 2
+    while divisor <= value:
+        if 0 == value % divisor:
+            values.append(Int((TT_Int | TT_Numeric, str(divisor))))
+
+            # reset divisor
+            value = value / divisor
+            divisor = 2
+        else:
+            divisor += 1
+
+    return values
+
+
 def simplify_division(node: Atom) -> Atom:
-    return node
+    assert isinstance(node, Operation)
+    assert node.token_type & TT_Div
+
+    if node.right.token_type & TT_Numeric and 1 == node.right.value:
+        return simplify(node.right)
+    if node.right.token_type & TT_Numeric and 0 == node.right.value:
+        # this should actually fail
+        assert (
+            False
+        ), "The divisor is zero, do not know if this should silently fail, or just do something else"
+
+    dividends = list[Atom]()
+    divisors = list[Atom]()
+
+    # first just collect dividends
+    nodes = [node.left]
+    while 0 < len(nodes):
+        sub_node = nodes.pop()
+
+        if isinstance(sub_node, Operation):
+            if sub_node.token_type & TT_Mult:
+                nodes.extend((sub_node.left, sub_node.right))
+            elif sub_node.token_type & TT_Div:
+                nodes.append(sub_node.left)
+                # have another step that does logic and factorizes values
+                # i'm not sure how the simplification step would work for the divisor
+                divisors.append(sub_node.right)
+            else:
+                dividends.append(sub_node)
+        else:
+            dividends.append(sub_node)
+    else:
+        del sub_node
+
+    nodes = [node.right]
+    while 0 < len(nodes):
+        sub_node = nodes.pop()
+
+        if isinstance(sub_node, Operation):
+            if sub_node.token_type & TT_Mult:
+                nodes.extend((sub_node.left, sub_node.right))
+            elif sub_node.token_type & TT_Div:
+                nodes.append(sub_node.left)
+                # have another step that does logic and factorizes values
+                # i'm not sure how the simplification step would work for the divisor
+                dividends.append(sub_node.right)
+            else:
+                divisors.append(sub_node)
+        else:
+            divisors.append(sub_node)
+    else:
+        del sub_node
+
+    # print(list(map(str, dividends)))
+    # print(list(map(str, divisors)))
+
+    # here i would need to have some factorisation step
+    i = 0
+    end = len(dividends)
+    while i < end:
+        factor = simplify(dividends[i])
+
+        if factor.token_type & TT_Numeric:
+            if 1 == factor.value:
+                dividends.pop(i)
+                end -= 1
+                # remove 1 useless for the purposes this is being used for
+                continue
+            if 0 == factor.value:
+                print("simplify_division", node, "dvisor is zero")
+
+                # just skip the end result will be 0
+                return Int((TT_Numeric | TT_Int, "0"))
+
+        if isinstance(factor, Int):
+            # i have no idea what i'm doing
+
+            factors = __get_factors(
+                factor.value
+            )  # get factors is assumed to work correctly
+
+            if len(factors) <= 1:
+                i += 1
+                continue  # the number is prime
+
+            # this is dumb but the best thing i can think of in order to not bactrack
+            dividends[i] = factors[0]
+            dividends.extend(factors[1:])
+
+        if isinstance(factor, Operation):
+            assert False, "this is not handled properly at the moment"
+
+        i += 1
+
+    # copy pasta from above with minor changes
+    # this could probably be a function
+    i = 0
+    end = len(divisors)
+    while i < end:
+        factor = simplify(divisors[i])
+
+        if factor.token_type & TT_Numeric:
+            if 1 == factor.value:
+                divisors.pop(i)
+                end -= 1
+                # remove 1 useless for the purposes this is being used for
+                continue
+            if 0 == factor.value:
+                print("simplify_division", node, "dvisor is zero")
+                raise ValueError("divisor is zero")
+
+        if isinstance(factor, Int):
+            # i have no idea what i'm doing
+
+            factors = __get_factors(
+                factor.value
+            )  # get factors is assumed to work correctly
+
+            if len(factors) <= 1:
+                i += 1
+                continue  # the number is prime
+
+            # this is dumb but the best thing i can think of in order to not bactrack
+            divisors[i] = factors[0]
+            divisors.extend(factors[1:])
+
+        if isinstance(factor, Operation):
+            assert False, "this is not handled properly at the moment"
+
+        i += 1
+
+    def compare_atoms(a: Atom, b: Atom) -> bool:
+        if type(a) != type(b):
+            return False
+
+        if a.token_type & TT_Numeric:
+            # NOTE: floats are innaccurate so this might cause a sneaky bug in the future
+            return a.value == b.value
+
+        if isinstance(a, Variable):
+            return compare_varible(a, b)
+
+        if isinstance(a, Operation):
+            # TODO: create a function that compares operation trees,
+            # i think the function will assume that the operation is simplified,
+            # or this function simplifies the operation first
+            return False
+
+    # cancel out same values, don't know how to express what i'm actually doing
+    i = 0
+    while i < len(divisors):
+        # NOTE: there might be a bug because some values could,
+        # skate through without getting simplified
+
+        divisor = divisors[i]
+        j = 0
+        flag = True
+        while j < len(dividends) and flag:
+            dividend = dividends[j]
+            if compare_atoms(divisor, dividend):
+                # atoms are equal
+                dividends.pop(j)
+                divisors.pop(i)
+                # break NOTE: you cannot break out of just a inner loop in python
+
+                # the few lines below are dumb but i works so no need to mess with it
+                if i == 0:
+                    i -= 1
+                else:
+                    i -= 2
+
+                flag = False  # force the exit of inner loop
+
+            j += 1
+
+        i += 1
+
+    # check special cases
+    if 0 == len(divisors):
+        if 0 == len(dividends):
+            # this means that all factors got cancelled out
+            return Int((TT_Int | TT_Numeric | TT_Numeric_Positive, str(1)))
+        elif len(dividends) < 2:
+            # NOTE: i do not know if this requires simplification
+            return dividends[0]
+        else:
+            dividend = Operation(
+                (RESERVED_IDENTITIES["*"], "*"), dividends[0], dividends[1]
+            )
+            return simplify_multiplication(
+                __join_nodes_into_tree(dividend, dividends[2:])
+            )
+
+    # OOF a 200 hundred line function
+    if 0 == len(dividends):
+        dividends = [Int((TT_Int | TT_Numeric | TT_Numeric_Positive, "1"))]
+
+    if len(dividends) < 2:
+        # NOTE: i do not know if this requires simplification
+        dividend = dividends[0]
+    else:
+        dividend = Operation(
+            (RESERVED_IDENTITIES["*"], "*"), dividends[0], dividends[1]
+        )
+        dividend = simplify_multiplication(
+            __join_nodes_into_tree(dividend, dividends[2:])
+        )
+
+    if len(divisors) < 2:
+        # NOTE: i do not know if this requires simplification
+        divisor = divisors[0]
+    else:
+        divisor = Operation((RESERVED_IDENTITIES["*"], "*"), divisors[0], divisors[1])
+        divisor = simplify_multiplication(__join_nodes_into_tree(divisor, divisors[2:]))
+
+    # TODO: break out identities from dividend
+    # [a / 2] => [1 / 2 * a]
+    # [(5 * a * b) / 4] => 5 / 4 * (a * b)
+
+    return Operation((RESERVED_IDENTITIES["/"], "/"), dividend, divisor)
 
 
 def print_simplification_status(node: Atom, expected: str, s=simplify_subtraction):
@@ -491,17 +739,7 @@ def print_simplification_status(node: Atom, expected: str, s=simplify_subtractio
     print(node, "=>", simplified, f"[{str(simplified) == expected}]")
 
 
-node = build_tree(parse("(a / 3) * 3"))
-print_simplification_status(node, "(a * 3) / 3", simplify_multiplication)
-
-node = build_tree(parse("(a / 3) * 3 * (1 / 4)"))
-print_simplification_status(node, "((a * 1) * 3) / (4 * 3)", simplify_multiplication)
-
-node = build_tree(parse("(a / 3) * 3"))
-print_simplification_status(node, "(a * 3) / 3", simplify_multiplication)
-
-node = build_tree(parse("(a / 3) * 3 * 4")) # the reason for why it is twelve because the factors are read from right to left
-print_simplification_status(node, "(a * 12) / 3", simplify_multiplication)
-
-node = build_tree(parse("(a / 3) * (3 / a) * 4")) # the flattening of nodes is not working properly
-print_simplification_status(node, "((a * 3) * 4) / (a * 3)", simplify_multiplication)
+node = build_tree(parse("(2 * a) / (a ^ 2)"))
+print_simplification_status(
+    node, "2 / a", simplify_division
+)
