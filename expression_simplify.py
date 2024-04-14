@@ -38,6 +38,74 @@ def __join_nodes_into_tree(node: Operation, nodes: list[Atom]) -> Operation:
     return node
 
 
+def compare_atoms(a: Atom, b: Atom) -> bool:
+    if type(a) != type(b):
+        return False
+
+    if a.token_type & TT_Numeric:
+        # NOTE: floats are innaccurate so this might cause a sneaky bug in the future
+        return a.value == b.value
+
+    if isinstance(a, Variable):
+        return compare_varible(a, b)
+
+    if isinstance(a, Operation):
+        # TODO: create a function that compares operation trees,
+        # i think the function will assume that the operation is simplified,
+        # or this function simplifies the operation first
+        return False
+
+
+def collect_factors(node: Operation, factors: list[Atom] = []):
+    if not isinstance(node, Operation):
+        return factors
+
+    nodes = [node.left, node.right]
+    while len(nodes) > 0:
+        sub_node = nodes.pop()
+        if isinstance(sub_node, Operation) and sub_node.token_type & TT_Mult:
+            nodes.extend((sub_node.left, sub_node.right))
+        else:
+            factors.append(
+                # simplify already here at ingestion to save progress
+                simplify(sub_node)
+            )
+    else:
+        del sub_node
+
+    return factors
+
+
+def expand_exponentiation(root: Operation):
+    """takes a value like [(a * b) ^ 2] expands the factors and adds [a, a, b, b] to factors list"""
+    assert isinstance(root, Operation)
+    assert root.right.value > 0, "Negative exponents are not supported"
+
+    left = root.left
+    factors: list[Atom] = []
+    if not left.token_type & TT_Mult:
+        factors.append(left)
+    else:
+        collect_factors(left, factors)
+
+    internal_factors = []
+
+    for i, factor in enumerate(factors):
+        if factor.token_type & TT_Exponent and isinstance(factor.right, Int):
+            expand_exponentiation(factor, internal_factors)
+            factors.pop(i)
+
+    factors.extend(internal_factors)
+
+    internal_factors = []
+    for factor in factors:
+        internal_factors.extend([factor] * (root.right.value - 1))
+
+    factors.extend(internal_factors)
+
+    return factors
+
+
 def simplify(node: Atom) -> Atom:
     if isinstance(node, Operation):
         if node.token_type & TT_Add:
@@ -46,6 +114,8 @@ def simplify(node: Atom) -> Atom:
             return simplify_subtraction(node)
         if node.token_type & TT_Mult:
             return simplify_multiplication(node)
+        if node.token_type & TT_Div:
+            return simplify_division(node)
 
     return node
 
@@ -560,9 +630,6 @@ def simplify_division(node: Atom) -> Atom:
     else:
         del sub_node
 
-    # print(list(map(str, dividends)))
-    # print(list(map(str, divisors)))
-
     # here i would need to have some factorisation step
     i = 0
     end = len(dividends)
@@ -576,7 +643,7 @@ def simplify_division(node: Atom) -> Atom:
                 # remove 1 useless for the purposes this is being used for
                 continue
             if 0 == factor.value:
-                print("simplify_division", node, "dvisor is zero")
+                print("simplify_division", node, "divisor is zero")
 
                 # just skip the end result will be 0
                 return Int((TT_Numeric | TT_Int, "0"))
@@ -597,7 +664,15 @@ def simplify_division(node: Atom) -> Atom:
             dividends.extend(factors[1:])
 
         if isinstance(factor, Operation):
-            assert False, "this is not handled properly at the moment"
+            if factor.token_type & TT_Exponent:
+                if isinstance(factor.right, Int):
+                    # only support integers
+                    assert factor.right.value > 0, "Negative exponent not supported"
+                    dividends.extend(expand_exponentiation(factor))
+                    dividends.pop(i)
+                    end -= 1
+            else:
+                assert False, "this is not handled properly at the moment"
 
         i += 1
 
@@ -634,26 +709,20 @@ def simplify_division(node: Atom) -> Atom:
             divisors.extend(factors[1:])
 
         if isinstance(factor, Operation):
-            assert False, "this is not handled properly at the moment"
+            if factor.token_type & TT_Exponent:
+                if isinstance(factor.right, Int):
+                    # only support integers
+                    assert factor.right.value > 0, "Negative exponent not supported"
+                    divisors.extend(expand_exponentiation(factor))
+                    end -= 1
+                    divisors.pop(i)
+            else:
+                assert False, "this is not handled properly at the moment"
 
         i += 1
 
-    def compare_atoms(a: Atom, b: Atom) -> bool:
-        if type(a) != type(b):
-            return False
-
-        if a.token_type & TT_Numeric:
-            # NOTE: floats are innaccurate so this might cause a sneaky bug in the future
-            return a.value == b.value
-
-        if isinstance(a, Variable):
-            return compare_varible(a, b)
-
-        if isinstance(a, Operation):
-            # TODO: create a function that compares operation trees,
-            # i think the function will assume that the operation is simplified,
-            # or this function simplifies the operation first
-            return False
+    # print(list(map(str, dividends)))
+    # print(list(map(str, divisors)))
 
     # cancel out same values, don't know how to express what i'm actually doing
     i = 0
@@ -683,7 +752,6 @@ def simplify_division(node: Atom) -> Atom:
             j += 1
 
         i += 1
-
     # check special cases
     if 0 == len(divisors):
         if 0 == len(dividends):
@@ -739,7 +807,15 @@ def print_simplification_status(node: Atom, expected: str, s=simplify_subtractio
     print(node, "=>", simplified, f"[{str(simplified) == expected}]")
 
 
-node = build_tree(parse("(2 * a) / (a ^ 2)"))
-print_simplification_status(
-    node, "2 / a", simplify_division
-)
+# x*b + x*c => x * (b + c)
+
+node = build_tree(parse("(2 * a) / ((b * a) ^ 2)"))
+print_simplification_status(node, "2 / (b ^ 2 * a)", simplify_division)
+
+node = build_tree(parse("(2 * a) ^ 2 / ((b * a) ^ 2)"))
+print_simplification_status(node, "4 / b ^ 2", simplify_division)
+
+# node = build_tree(parse("(b * a) ^ 2"))  # b * b * a * b * c ^ 4
+# l = []
+# expand_exponentiation(node, l)
+# print(list(map(str, l)))
