@@ -1,7 +1,7 @@
 from copy import copy
 from typing import Tuple, Literal
 from expression_parser import (
-    TT_INFO_MASK,
+    TT_OOO_MASK,
     TT_Exponent,
     TT_Ident,
     TT_Int,
@@ -28,8 +28,10 @@ def get_opposite_operation(token: Tuple[int, str]):
     # the following is really cursed
     for key in RESERVED_IDENTITIES:
         val = RESERVED_IDENTITIES[key]
-        if (token[0] & TT_INFO_MASK) == (val & TT_INFO_MASK) and token[0] != val:
+        if (token[0] & TT_OOO_MASK) == (val & TT_OOO_MASK) and token[0] != val:
             return (val, key)
+
+    print(token)
 
     raise ValueError("Could not find an opposite operation")
 
@@ -145,8 +147,3 @@ print(
     solve_for(build_tree(parse("a^2 = b - 1")), a)
 )  # what i want for now a = (b - 1) ^ (1/2)
 
-
-expression = "(1/2)(m*v/(m + M))^2 = g * h"
-print("_" * int(len(expression) * 1.4))
-v = Variable((TT_Ident, "v"))
-print(solve_for(build_tree(parse(expression)), v))
