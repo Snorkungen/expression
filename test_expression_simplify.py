@@ -55,6 +55,26 @@ class Addition(unittest.TestCase):
 
         test("-2 + (-2 + 2)", "-2")
 
+    def test_variable_manipulation(self):
+        test = assert_simplified(self, simplify_addition)
+
+        test("a + 2 * a", "3 * a")
+
+        test("x * b + x * c", "(c + b) * x")
+
+        test("b * x + c * ((1 * x) * -1)", "(-1 * c + b) * x")
+        test("b * x + (-1 * c) * x", "(-1 * c + b) * x")
+
+        test("x * ((b * k) * -1) + (x) * (c * -1)", "(-1 * c + (-1 * k) * b) * x")
+
+        test("-1 * c + b * a", "-1 * c + b * a")
+
+        test("x * b + (x) * (c * -1) + 2 * 4", "(b + -1 * c) * x + 8")
+
+        test("x * b + (2 * x) * (c * -1) + 2", "(b + -2 * c) * x + 2")
+
+        test("2 * x + x + 2", "3 * x + 2")
+
 
 class Division(unittest.TestCase):
     def test_inital(self):
@@ -98,7 +118,7 @@ class Subtraction(unittest.TestCase):
         test = assert_simplified(self, simplify_subtraction)
 
         test("2 - 2", "0")  #   0
-        test("2 - 2 - 2" , "-2")  # -2 + 2 - 2 => -2 + -2 + 2
+        test("2 - 2 - 2", "-2")  # -2 + 2 - 2 => -2 + -2 + 2
         test("-a - 2 - a - 4 * a", "-6 * a + -2")
         # TODO: think about rectifying [a + -b] => [a - b]
 
