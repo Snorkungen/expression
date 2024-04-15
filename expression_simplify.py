@@ -1,4 +1,4 @@
-from typing import Iterable, Union
+from typing import Callable, Iterable, Tuple, Union
 from expression_parser import (
     RESERVED_IDENTITIES,
     TT_Div,
@@ -137,18 +137,7 @@ def simplify_multiplication(node: Atom) -> Atom:
 
     factors = list[Atom]()
 
-    nodes = [node.left, node.right]
-    while len(nodes) > 0:
-        sub_node = nodes.pop()
-        if isinstance(sub_node, Operation) and sub_node.token_type & TT_Mult:
-            nodes.extend((sub_node.left, sub_node.right))
-        else:
-            factors.append(
-                # simplify already here at ingestion to save progress
-                simplify(sub_node)
-            )
-    else:
-        del sub_node
+    collect_factors(node, factors) # collect all factors of interest
 
     # combine similar factors
     i = 0
@@ -630,96 +619,53 @@ def simplify_division(node: Atom) -> Atom:
     else:
         del sub_node
 
-    # here i would need to have some factorisation step
-    i = 0
-    end = len(dividends)
-    while i < end:
-        factor = simplify(dividends[i])
+    def factorize_factors(
+        factors: list[Atom],
+        handle_zero: Callable[[Atom], Atom],
+    ):
+        i = 0
+        end = len(factors)
+        while i < end:
+            factor = simplify(factors[i])
 
-        if factor.token_type & TT_Numeric:
-            if 1 == factor.value:
-                dividends.pop(i)
-                end -= 1
-                # remove 1 useless for the purposes this is being used for
-                continue
-            if 0 == factor.value:
-                print("simplify_division", node, "divisor is zero")
-
-                # just skip the end result will be 0
-                return Int((TT_Numeric | TT_Int, "0"))
-
-        if isinstance(factor, Int):
-            # i have no idea what i'm doing
-
-            factors = __get_factors(
-                factor.value
-            )  # get factors is assumed to work correctly
-
-            if len(factors) <= 1:
-                i += 1
-                continue  # the number is prime
-
-            # this is dumb but the best thing i can think of in order to not bactrack
-            dividends[i] = factors[0]
-            dividends.extend(factors[1:])
-
-        if isinstance(factor, Operation):
-            if factor.token_type & TT_Exponent:
-                if isinstance(factor.right, Int):
-                    # only support integers
-                    assert factor.right.value > 0, "Negative exponent not supported"
-                    dividends.extend(expand_exponentiation(factor))
-                    dividends.pop(i)
+            if factor.token_type & TT_Numeric:
+                if 1 == factor.value:
+                    factors.pop(i)
                     end -= 1
-            else:
-                assert False, "this is not handled properly at the moment"
+                    continue
+                elif 0 == factor.value:
+                    print("simplify_division", node, "divisor is zero")
+                    return handle_zero(node)
 
-        i += 1
+            if isinstance(factor, Int):
 
-    # copy pasta from above with minor changes
-    # this could probably be a function
-    i = 0
-    end = len(divisors)
-    while i < end:
-        factor = simplify(divisors[i])
+                int_factors = __get_factors(factor.value)
 
-        if factor.token_type & TT_Numeric:
-            if 1 == factor.value:
-                divisors.pop(i)
-                end -= 1
-                # remove 1 useless for the purposes this is being used for
-                continue
-            if 0 == factor.value:
-                print("simplify_division", node, "dvisor is zero")
-                raise ValueError("divisor is zero")
-
-        if isinstance(factor, Int):
-            # i have no idea what i'm doing
-
-            factors = __get_factors(
-                factor.value
-            )  # get factors is assumed to work correctly
-
-            if len(factors) <= 1:
-                i += 1
-                continue  # the number is prime
-
-            # this is dumb but the best thing i can think of in order to not bactrack
-            divisors[i] = factors[0]
-            divisors.extend(factors[1:])
-
-        if isinstance(factor, Operation):
-            if factor.token_type & TT_Exponent:
-                if isinstance(factor.right, Int):
-                    # only support integers
-                    assert factor.right.value > 0, "Negative exponent not supported"
-                    divisors.extend(expand_exponentiation(factor))
+                if len(int_factors) <= 1:
+                    i += 1
+                    continue # i do not know what this is doing
+                factors[i] = int_factors[0]
+                factors.extend(int_factors[1:])
+            
+            if isinstance(factor, Operation):
+                if factor.token_type & TT_Exponent and isinstance(factor.right,Int):
+                    assert factor.right.value > 0, "Negative Exponent not supported"
+                    factors.extend(expand_exponentiation(factor))
+                    factors.pop(i)
                     end -= 1
-                    divisors.pop(i)
-            else:
-                assert False, "this is not handled properly at the moment"
+                else:
+                    assert False, "Factorising operations not handled at the moment"
+            i += 1
+                    
+    def handle_zero_dividend (_):
+        return Int((TT_Numeric | TT_Int, "0")) # just skip the end result will be 0
 
-        i += 1
+    factorize_factors(dividends, handle_zero_dividend) # factorize dividends
+
+    def handle_zero_divisor (_):
+        raise ValueError("divisor is zero")
+
+    factorize_factors(divisors, handle_zero_divisor) # factorize divisors
 
     # print(list(map(str, dividends)))
     # print(list(map(str, divisors)))
@@ -752,43 +698,33 @@ def simplify_division(node: Atom) -> Atom:
             j += 1
 
         i += 1
+    
+    # this should be a global function that is more dynamic
+    def __construct_node_from_factors (factors: list[Atom], operation_token: Tuple[int, str]):
+        assert len(factors) >= 1
+
+        if len(factors) < 2:
+            return factors[0]
+        
+        factor = Operation(operation_token, factors[0], factors[1])
+        return simplify(
+            __join_nodes_into_tree(factor, factors[2:])
+        )
+
     # check special cases
     if 0 == len(divisors):
         if 0 == len(dividends):
             # this means that all factors got cancelled out
             return Int((TT_Int | TT_Numeric | TT_Numeric_Positive, str(1)))
-        elif len(dividends) < 2:
-            # NOTE: i do not know if this requires simplification
-            return dividends[0]
         else:
-            dividend = Operation(
-                (RESERVED_IDENTITIES["*"], "*"), dividends[0], dividends[1]
-            )
-            return simplify_multiplication(
-                __join_nodes_into_tree(dividend, dividends[2:])
-            )
+            return __construct_node_from_factors(dividends, (RESERVED_IDENTITIES["*"], "*"))
 
-    # OOF a 200 hundred line function
     if 0 == len(dividends):
-        dividends = [Int((TT_Int | TT_Numeric | TT_Numeric_Positive, "1"))]
-
-    if len(dividends) < 2:
-        # NOTE: i do not know if this requires simplification
-        dividend = dividends[0]
+        dividend = Int((TT_Int | TT_Numeric | TT_Numeric_Positive, "1"))
     else:
-        dividend = Operation(
-            (RESERVED_IDENTITIES["*"], "*"), dividends[0], dividends[1]
-        )
-        dividend = simplify_multiplication(
-            __join_nodes_into_tree(dividend, dividends[2:])
-        )
+        dividend = __construct_node_from_factors(dividends, (RESERVED_IDENTITIES["*"], "*"))
 
-    if len(divisors) < 2:
-        # NOTE: i do not know if this requires simplification
-        divisor = divisors[0]
-    else:
-        divisor = Operation((RESERVED_IDENTITIES["*"], "*"), divisors[0], divisors[1])
-        divisor = simplify_multiplication(__join_nodes_into_tree(divisor, divisors[2:]))
+    divisor = __construct_node_from_factors(divisors, (RESERVED_IDENTITIES["*"], "*"))
 
     # TODO: break out identities from dividend
     # [a / 2] => [1 / 2 * a]

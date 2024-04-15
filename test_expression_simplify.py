@@ -9,7 +9,7 @@ def assert_simplified(self: unittest.TestCase, simplify_fn=simplify):
     def assert_equal(node_str: str, expected: str, message=None):
         node = build_tree(parse(node_str))
         simplified = simplify_fn(node)
-        self.assertEqual(str(simplified), expected, message)
+        self.assertEqual(str(simplified), expected, message if message else node_str)
         return
 
     return assert_equal
@@ -56,17 +56,17 @@ class Addition(unittest.TestCase):
         test("-2 + (-2 + 2)", "-2")
 
 
-class Divisionn(unittest.TestCase):
+class Division(unittest.TestCase):
     def test_inital(self):
         test = assert_simplified(self, simplify_division)
 
-        test("2 / 2", "1")
-        test("2 / 4", "1 / 2")
-        test("2 / 4 / 2", "1 / 4")
-        test("(2 / 4) / (1 / 2)", "1")
-        test("1 / (1 / 1 / 2)", "2")
-        test("(2 * a) / a", "2")
-        test("(2 * a) / 2", "a")
+        test("2 / 2", "1", "[1]")
+        test("2 / 4", "1 / 2", "[2]")
+        test("2 / 4 / 2", "1 / 4", "[3]")
+        test("(2 / 4) / (1 / 2)", "1", "[4]")
+        test("1 / (1 / 1 / 2)", "2", "[5]")
+        test("(2 * a) / a", "2", "[6]")
+        test("(2 * a) / 2", "a", "[7]")
 
 
 class Multiplication(unittest.TestCase):
