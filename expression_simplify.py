@@ -106,6 +106,18 @@ def expand_exponentiation(root: Operation):
     return factors
 
 
+def __construct_node_from_factors(
+    factors: list[Atom], operation_token: Tuple[int, str]
+):
+    assert len(factors) >= 1
+
+    if len(factors) < 2:
+        return factors[0]
+
+    factor = Operation(operation_token, factors[0], factors[1])
+    return simplify(__join_nodes_into_tree(factor, factors[2:]))
+
+
 def simplify(node: Atom) -> Atom:
     if isinstance(node, Operation):
         if node.token_type & TT_Add:
@@ -137,7 +149,7 @@ def simplify_multiplication(node: Atom) -> Atom:
 
     factors = list[Atom]()
 
-    collect_factors(node, factors) # collect all factors of interest
+    collect_factors(node, factors)  # collect all factors of interest
 
     # combine similar factors
     i = 0
@@ -356,9 +368,25 @@ def simplify_addition(node: Atom) -> Atom:
             terms.append(sub_node)
         del sub_node
     i = 0
+
+    list_of_factors: list[list[Atom]] = []
     # loop through the terms and combine terms
     while i < len(terms):
         term = simplify(terms[i])
+
+        # testing out of annoyance
+        if isinstance(term, Operation) and term.token_type & TT_Mult:
+            factors: list[Atom] = []
+            factors = collect_factors(term, factors)
+            list_of_factors.append(factors)
+            # save theese and then have a recovery step ?
+            # remove term from list
+            # print(list(map(str, factors)))
+
+            terms.pop(i)
+            # print (list(map(str, terms)), list(map(lambda z: list(map(str, z)), list_of_factors)), "why is this running twice", i)
+
+            continue
 
         if term.token_type & TT_Numeric:
             if not isinstance(term, Int):
@@ -383,73 +411,153 @@ def simplify_addition(node: Atom) -> Atom:
 
             terms[i] = Int((token_type, str(sum)))
 
-        elif (
-            isinstance(term, Variable)
-            or isinstance(term, Operation)
-            and term.token_type & TT_Mult
-            and (isinstance(term.right, Variable) or isinstance(term.left, Variable))
-        ):
-            if isinstance(term, Variable):
-                variable = term
-                values = [Int((TT_Int | TT_Numeric | TT_Numeric_Positive, "1"))]
-            else:
-                # NOTE: this might have some unforseen side-effects
-                if isinstance(term.right, Variable):
-                    variable = term.right
-                    values = [term.left]
-                elif isinstance(term.left, Variable):
-                    variable = term.left
-                    values = [term.right]
-                else:
-                    raise "this should not happen"
-            # this allows for checking (a + (2 * a)) or (a * 2) + a
-            j = i + 1
+        # elif (
+        #     isinstance(term, Variable)
+        #     or isinstance(term, Operation)
+        #     and term.token_type & TT_Mult
+        #     and (isinstance(term.right, Variable) or isinstance(term.left, Variable))
+        # ):
+        #     if isinstance(term, Variable):
+        #         variable = term
+        #         values = [Int((TT_Int | TT_Numeric | TT_Numeric_Positive, "1"))]
+        #     else:
+        #         # NOTE: this might have some unforseen side-effects
+        #         if isinstance(term.right, Variable):
+        #             variable = term.right
+        #             values = [term.left]
+        #         elif isinstance(term.left, Variable):
+        #             variable = term.left
+        #             values = [term.right]
+        #         else:
+        #             raise "this should not happen"
+        #     # this allows for checking (a + (2 * a)) or (a * 2) + a
+        #     j = i + 1
 
-            while j < len(terms):
-                sub_term = simplify(terms[j])
-                # todo add to "k * x"
-                if compare_varible(variable, sub_term):
-                    values.append(Int((TT_Int | TT_Numeric | TT_Numeric_Positive, "1")))
-                    terms.pop(j)
-                    continue
-                elif isinstance(sub_term, Operation) and sub_term.token_type & TT_Mult:
-                    # check that one node on the is the variable
-                    if isinstance(sub_term.right, Variable) and compare_varible(
-                        sub_term.right, variable
-                    ):
-                        values.append(sub_term.left)
-                        terms.pop(j)
-                        continue
-                    if isinstance(sub_term.left, Variable) and compare_varible(
-                        sub_term.left, variable
-                    ):
-                        values.append(sub_term.right)
-                        terms.pop(j)
-                        continue
+        #     while j < len(terms):
+        #         sub_term = simplify(terms[j])
+        #         # todo add to "k * x"
+        #         if compare_varible(variable, sub_term):
+        #             values.append(Int((TT_Int | TT_Numeric | TT_Numeric_Positive, "1")))
+        #             terms.pop(j)
+        #             continue
+        #         elif isinstance(sub_term, Operation) and sub_term.token_type & TT_Mult:
+        #             # check that one node on the is the variable
+        #             if isinstance(sub_term.right, Variable) and compare_varible(
+        #                 sub_term.right, variable
+        #             ):
+        #                 values.append(sub_term.left)
+        #                 terms.pop(j)
+        #                 continue
+        #             if isinstance(sub_term.left, Variable) and compare_varible(
+        #                 sub_term.left, variable
+        #             ):
+        #                 values.append(sub_term.right)
+        #                 terms.pop(j)
+        #                 continue
+        #         j += 1
+
+        #     if len(values) < 2:
+        #         count = values[0]
+        #     else:
+        #         count = Operation((RESERVED_IDENTITIES["+"], "+"), values[0], values[1])
+        #         sub_node = count
+        #         for j in range(2, len(values)):
+        #             sub_node.left = Operation(
+        #                 (RESERVED_IDENTITIES["+"], "+"), values[j], sub_node.left
+        #             )
+        #             sub_node = sub_node.left
+
+        #         count = simplify(count)
+
+        #     terms[i] = simplify(
+        #         # the simplyfy call is due is is to do a final check
+        #         Operation((RESERVED_IDENTITIES["*"], "*"), count, variable)
+        #     )
+
+        i += 1
+
+    # recovery step for list of factors
+
+    i = 0
+    while i < len(list_of_factors):
+        factors = list_of_factors[i]
+        factor_idx = 0
+
+        while factor_idx < len(factors):
+            factor = factors[factor_idx]
+            if not isinstance(factor, Variable):
+                factor_idx += 1
+                continue  # only look for variables
+            
+            # count if this variable has multiple occurences in the list_of_factors
+
+            indices: list[Tuple[int, int]] = []
+
+            j = i + 1
+            while j < len(list_of_factors):
+                k = 0
+                while k < len(list_of_factors[j]):
+                    if compare_varible(factor, list_of_factors[j][k]):
+                        indices.append((j, k))
+
+                    k += 1
                 j += 1
 
-            if len(values) < 2:
-                count = values[0]
-            else:
-                count = Operation((RESERVED_IDENTITIES["+"], "+"), values[0], values[1])
-                sub_node = count
-                for j in range(2, len(values)):
-                    sub_node.left = Operation(
-                        (RESERVED_IDENTITIES["+"], "+"), values[j], sub_node.left
+
+            if len(indices) < 1:
+                terms_for_factor_node = list(
+                    map(
+                        lambda f: __construct_node_from_factors(
+                            f, (RESERVED_IDENTITIES["*"], "*")
+                        ),
+                        list_of_factors,
                     )
-                    sub_node = sub_node.left
+                )
 
-                count = simplify(count)
+                terms.extend(terms_for_factor_node)
+                list_of_factors[i].pop(factor_idx)
+                print (node, "is this running a second time ?", factor_idx, i)
 
-            terms[i] = simplify(
-                # the simplyfy call is due is is to do a final check
-                Operation((RESERVED_IDENTITIES["*"], "*"), count, variable)
+                factor_idx +=1
+                continue
+
+            # remove occurences of the factor from the list_of_factors
+            list_of_factors[i].pop(factor_idx)
+            for pos in indices:
+                list_of_factors[pos[0]].pop(pos[1])
+
+            # in more challenging situations this would have to deal with situations where there are multiple variables under the same conditions
+            # and then some how rectify them, but for now let us just do something
+
+            terms_for_factor_node = list(
+                map(
+                    lambda f: __construct_node_from_factors(
+                        f, (RESERVED_IDENTITIES["*"], "*")
+                    ),
+                    list_of_factors,
+                )
             )
 
+
+            left_node = __construct_node_from_factors(
+                terms_for_factor_node, (RESERVED_IDENTITIES["+"], "+")
+            )
+            # print(list(map(str, terms)), node)
+            right_node = factor
+            new_term = Operation((RESERVED_IDENTITIES["*"], "*"), left_node, right_node)
+
+            print(left_node)
+            print(new_term)
+            terms.append(new_term)  # add back the terms that were previously removed
+            print(list(map(str, terms)), "terms", factor_idx, i)
+
+            factor_idx += 1
+            i = len(list_of_factors)
         i += 1
 
     # use the same strategy as tree builder
     # but in reality i would like to do some sorting of the values so
+
 
     if len(terms) == 1:
         return terms[0]
@@ -643,12 +751,12 @@ def simplify_division(node: Atom) -> Atom:
 
                 if len(int_factors) <= 1:
                     i += 1
-                    continue # i do not know what this is doing
+                    continue  # i do not know what this is doing
                 factors[i] = int_factors[0]
                 factors.extend(int_factors[1:])
-            
+
             if isinstance(factor, Operation):
-                if factor.token_type & TT_Exponent and isinstance(factor.right,Int):
+                if factor.token_type & TT_Exponent and isinstance(factor.right, Int):
                     assert factor.right.value > 0, "Negative Exponent not supported"
                     factors.extend(expand_exponentiation(factor))
                     factors.pop(i)
@@ -656,16 +764,16 @@ def simplify_division(node: Atom) -> Atom:
                 else:
                     assert False, "Factorising operations not handled at the moment"
             i += 1
-                    
-    def handle_zero_dividend (_):
-        return Int((TT_Numeric | TT_Int, "0")) # just skip the end result will be 0
 
-    factorize_factors(dividends, handle_zero_dividend) # factorize dividends
+    def handle_zero_dividend(_):
+        return Int((TT_Numeric | TT_Int, "0"))  # just skip the end result will be 0
 
-    def handle_zero_divisor (_):
+    factorize_factors(dividends, handle_zero_dividend)  # factorize dividends
+
+    def handle_zero_divisor(_):
         raise ValueError("divisor is zero")
 
-    factorize_factors(divisors, handle_zero_divisor) # factorize divisors
+    factorize_factors(divisors, handle_zero_divisor)  # factorize divisors
 
     # print(list(map(str, dividends)))
     # print(list(map(str, divisors)))
@@ -698,18 +806,6 @@ def simplify_division(node: Atom) -> Atom:
             j += 1
 
         i += 1
-    
-    # this should be a global function that is more dynamic
-    def __construct_node_from_factors (factors: list[Atom], operation_token: Tuple[int, str]):
-        assert len(factors) >= 1
-
-        if len(factors) < 2:
-            return factors[0]
-        
-        factor = Operation(operation_token, factors[0], factors[1])
-        return simplify(
-            __join_nodes_into_tree(factor, factors[2:])
-        )
 
     # check special cases
     if 0 == len(divisors):
@@ -717,12 +813,16 @@ def simplify_division(node: Atom) -> Atom:
             # this means that all factors got cancelled out
             return Int((TT_Int | TT_Numeric | TT_Numeric_Positive, str(1)))
         else:
-            return __construct_node_from_factors(dividends, (RESERVED_IDENTITIES["*"], "*"))
+            return __construct_node_from_factors(
+                dividends, (RESERVED_IDENTITIES["*"], "*")
+            )
 
     if 0 == len(dividends):
         dividend = Int((TT_Int | TT_Numeric | TT_Numeric_Positive, "1"))
     else:
-        dividend = __construct_node_from_factors(dividends, (RESERVED_IDENTITIES["*"], "*"))
+        dividend = __construct_node_from_factors(
+            dividends, (RESERVED_IDENTITIES["*"], "*")
+        )
 
     divisor = __construct_node_from_factors(divisors, (RESERVED_IDENTITIES["*"], "*"))
 
@@ -743,13 +843,22 @@ def print_simplification_status(node: Atom, expected: str, s=simplify_subtractio
     print(node, "=>", simplified, f"[{str(simplified) == expected}]")
 
 
-# x*b + x*c => x * (b + c)
+# x*b - x*c => x * (b + c * -1)
 
-node = build_tree(parse("(2 * a) / ((b * a) ^ 2)"))
-print_simplification_status(node, "2 / (b ^ 2 * a)", simplify_division)
+# node = build_tree(parse("x * b + x * c"))
+# print_simplification_status(node, "(c + b) * x", simplify_addition)
 
-node = build_tree(parse("(2 * a) ^ 2 / ((b * a) ^ 2)"))
-print_simplification_status(node, "4 / b ^ 2", simplify_division)
+node = build_tree(parse("x * b + (x) * (c * -1)"))
+print_simplification_status(node, "(-1 * c + b) * x", simplify)
+
+node = build_tree(parse("-1 * c + b"))
+print_simplification_status(node, "----", simplify)
+
+# node = build_tree(parse("(2 * a) / ((b * a) ^ 2)"))
+# print_simplification_status(node, "2 / (b ^ 2 * a)", simplify_division)
+
+# node = build_tree(parse("(2 * a) ^ 2 / ((b * a) ^ 2)"))
+# print_simplification_status(node, "4 / b ^ 2", simplify_division)
 
 # node = build_tree(parse("(b * a) ^ 2"))  # b * b * a * b * c ^ 4
 # l = []
