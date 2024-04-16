@@ -797,7 +797,7 @@ def simplify_division(node: Atom) -> Atom:
     return Operation((RESERVED_IDENTITIES["/"], "/"), dividend, divisor)
 
 
-def print_simplification_status(node: Atom, expected: str, s=simplify_subtraction):
+def print_simplification_status(node: Atom, expected: str, s=simplify):
     if __name__ != "__main__":
         return
     if not expected:
@@ -807,13 +807,12 @@ def print_simplification_status(node: Atom, expected: str, s=simplify_subtractio
     print(f"[{str(simplified) == expected}]", node, "=>", simplified)
 
 
-node = build_tree(parse("(2 * a) / ((b * a) ^ 2)"))
-print_simplification_status(node, "2 / (b ^ 2 * a)", simplify_division)
+node = build_tree(parse("-1 * (b * a + 10)"))
+print_simplification_status(node, "-10 + -1 * b * a", simplify_multiplication)
 
-node = build_tree(parse("(2 * a) ^ 2 / ((b * a) ^ 2)"))
-print_simplification_status(node, "4 / b ^ 2", simplify_division)
-
-# node = build_tree(parse("(b * a) ^ 2"))  # b * b * a * b * c ^ 4
-# l = []
-# expand_exponentiation(node, l)
-# print(list(map(str, l)))
+"""-1 * 
+    a = (-1 * 8b + 2) / 2b
+    a = (-8b + 2) / 2b
+    a = -8b / 2b + 2 / 2b
+    a = 1 / b + -4  
+"""
