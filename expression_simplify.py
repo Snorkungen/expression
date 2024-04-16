@@ -56,7 +56,7 @@ def compare_atoms(a: Atom, b: Atom) -> bool:
         return False
 
 
-def collect_factors(node: Operation, factors: list[Atom] = None):
+def collect_factors(node: Operation, factors: list[Atom] = None, simplify_node=True):
     if factors == None:
         factors = []
     if not isinstance(node, Operation):
@@ -71,11 +71,37 @@ def collect_factors(node: Operation, factors: list[Atom] = None):
             factors.append(
                 # simplify already here at ingestion to save progress
                 simplify(sub_node)
+                if simplify_node
+                else sub_node
             )
     else:
         del sub_node
 
     return factors
+
+
+def collect_terms(node: Operation, terms: list[Atom] = None, simplify_node=True):
+    if None == terms:
+        terms = []
+    if not isinstance(node, Operation):
+        return terms
+
+    nodes = [node.left, node.right]
+    while len(nodes) > 0:
+        sub_node = nodes.pop()
+        if isinstance(sub_node, Operation) and sub_node.token_type & TT_Add:
+            nodes.extend((sub_node.right, sub_node.left))
+        else:
+            potential_term = simplify(sub_node) if simplify_node else sub_node
+            # simplify multiplication might return and addition operation
+            if isinstance(sub_node, Operation) and sub_node.token_type & TT_Add:
+                nodes.extend((potential_term.right, potential_term.left))
+            else:
+                terms.append(potential_term)
+
+    del sub_node
+
+    return terms
 
 
 def expand_exponentiation(root: Operation):
@@ -340,6 +366,46 @@ def simplify_multiplication(node: Atom) -> Atom:
     return factors[0]
 
 
+def simplify_multiplication_distribute(node: Atom) -> Atom:
+    if not isinstance(node, Operation) or not node.token_type & TT_Mult:
+        return node
+
+    factors = collect_factors(node)
+    i = 0
+    while i < len(factors):
+        factor = factors[i]
+        if not factor.token_type & TT_Add:
+            i += 1
+            continue
+
+        terms = collect_terms(factor, simplify_node=False)
+        factors.pop(i)
+
+        remaining_factor = __construct_node_from_factors(
+            factors, (RESERVED_IDENTITIES["*"], "*")
+        )
+
+        j = 0
+        while j < len(terms):
+            terms[j] = simplify_multiplication_distribute(
+                simplify_multiplication(
+                    Operation(
+                        (RESERVED_IDENTITIES["*"], "*"), remaining_factor, terms[j]
+                    )
+                )
+            )
+            j += 1
+
+        if len(terms) < 2:
+            return terms[0]
+
+        node = Operation((RESERVED_IDENTITIES["+"], "+"), terms[0], terms[1])
+        (__join_nodes_into_tree(node, terms[2:]))
+
+        return node
+    return node
+
+
 def simplify_addition(node: Atom) -> Atom:
     assert isinstance(node, Operation)
     assert node.token_type & TT_Add > 0
@@ -361,20 +427,12 @@ def simplify_addition(node: Atom) -> Atom:
     terms = list[Atom]()  # create an empty list
 
     # walk the tree and collect terms
-    nodes = [node.left, node.right]
-    while len(nodes) > 0:
-        sub_node = nodes.pop()
-        if isinstance(sub_node, Operation) and sub_node.token_type & TT_Add:
-            nodes.extend((sub_node.right, sub_node.left))
-        else:
-            terms.append(sub_node)
-        del sub_node
+    terms = collect_terms(node, terms)
     i = 0
 
-    list_of_factors: list[list[Atom]] = []
     # loop through the terms and combine terms
     while i < len(terms):
-        term = simplify(terms[i])
+        term = terms[i]
 
         if term.token_type & TT_Numeric:
             if not isinstance(term, Int):
@@ -386,7 +444,7 @@ def simplify_addition(node: Atom) -> Atom:
             j = i + 1
             # for simplicity just loop throug and find integers
             while j < len(terms):
-                sub_term = simplify(terms[j])
+                sub_term = terms[j]
                 if sub_term.token_type & TT_Numeric and isinstance(sub_term, Int):
                     # in future check if it is possible to coerce the value to an Int or something else
                     sum += sub_term.value
@@ -593,11 +651,13 @@ def simplify_subtraction(node: Atom) -> Atom:
     left = node.right  # swap left and right
 
     # multiply left node with -1
-    left = simplify_multiplication(
-        Operation(
-            (RESERVED_IDENTITIES["*"], "*"),
-            left,
-            Int(((TT_Int | TT_Numeric | TT_Numeric_Negative), "-1")),
+    left = simplify_multiplication_distribute(
+        simplify_multiplication(
+            Operation(
+                (RESERVED_IDENTITIES["*"], "*"),
+                left,
+                Int(((TT_Int | TT_Numeric | TT_Numeric_Negative), "-1")),
+            )
         )
     )
 
@@ -807,10 +867,42 @@ def print_simplification_status(node: Atom, expected: str, s=simplify):
     print(f"[{str(simplified) == expected}]", node, "=>", simplified)
 
 
-node = build_tree(parse("-1 * (b * a + 10)"))
-print_simplification_status(node, "-10 + -1 * b * a", simplify_multiplication)
+node = build_tree(parse("-1 * (b + (a * 2)) * 2"))
+print_simplification_status(
+    node,
+    "-4 * a + -2 * b",
+    lambda x: simplify_multiplication_distribute(simplify_multiplication(x)),
+)
 
-"""-1 * 
+node = build_tree(parse("-2 * (b + 2)"))
+print_simplification_status(
+    node,
+    "-2 * b + -4",
+    lambda x: simplify_addition(simplify_multiplication_distribute(simplify_multiplication(x))),
+)
+
+node = build_tree(parse("(a + 3) * (b + 2)"))
+print_simplification_status(
+    node,
+    "(6 + 3 * b) + (2 * a + b * a)",
+    lambda x: simplify_multiplication_distribute(simplify_multiplication(x)),
+)
+
+node = build_tree(parse("(a + 3) * (b + 2) * 2"))
+print_simplification_status(
+    node,
+    "(12 + 6 * b) + (4 * a + (2 * b) * a)",
+    lambda x: simplify_multiplication_distribute(simplify_multiplication(x)),
+)
+
+node = build_tree(parse("(6 + 2 * a) + (3 * b + a * b)"))
+print_simplification_status(node, "(2 * a + (a + 3) * b) + 6", simplify_addition)
+
+node = build_tree(parse("a*x + b*c - (d * x + e * f)"))
+# node = build_tree(parse("a*x + b*c + (-1*d * x + -1*e * f)"))
+print_simplification_status(node, "((-1 * e) * f + b * c) + (a + -1 * d) * x", simplify)
+
+"""
     a = (-1 * 8b + 2) / 2b
     a = (-8b + 2) / 2b
     a = -8b / 2b + 2 / 2b

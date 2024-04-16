@@ -112,6 +112,11 @@ class Multiplication(unittest.TestCase):
         test("(a / 3) * 3 * 4", "4 * a")
         test("(a / 3) * (3 / a) * 4", "4")
 
+    def test_distribute (self):
+        test = assert_simplified(self, lambda x: simplify_multiplication_distribute(simplify_multiplication(x)))
+
+        test("(a + 3) * (b + 2)", "(6 + 3 * b) + (2 * a + b * a)" )
+        test("(a + 3) * (b + 2) * 2", "(12 + 6 * b) + (4 * a + (2 * b) * a)")
 
 class Subtraction(unittest.TestCase):
     def test_initial(self):
