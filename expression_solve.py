@@ -123,27 +123,35 @@ def solve_for(tree: Atom, target: Variable, show_steps=False) -> Equals:
 
 
 # TODO: write tests
+def print_solver(expression, variable):
+    tokens = parse(expression)
+    tree = build_tree(tokens)
+
+    print(expression, f"[{variable}] =>", solve_for(tree, variable))
+
+
+a = Variable((TT_Ident, "a"))
+b = Variable((TT_Ident, "b"))
+
+print_solver("10 + a * 20 / 10 = b", a)
+print_solver("10 + a * 20 / 10 = b", b)
 
 expression = "10 + a * 20 / 10 = b"
 tokens = parse(expression)
 tree = build_tree(tokens)
 
-a = Variable((TT_Ident, "a"))
-b = Variable((TT_Ident, "b"))
+# print(solve_for(tree, a))
+# print("_" * int(len(expression) * 1.4))
+# print(solve_for(solve_for(tree, a), b))
 
-print(solve_for(tree, a))
-print("_" * int(len(expression) * 1.4))
-print(solve_for(solve_for(tree, a), b))
+# expression = "(a + 10 / 2) / 6 = b * 10 + 10"
+# tree = build_tree(parse(expression))
+# print("_" * int(len(expression) * 1.4))
+# print(solve_for(tree, a))
+# print("_" * int(len(expression) * 1.4))
+# print(solve_for(solve_for(tree, a), b))
 
-expression = "(a + 10 / 2) / 6 = b * 10 + 10"
-tree = build_tree(parse(expression))
-print("_" * int(len(expression) * 1.4))
-print(solve_for(tree, a))
-print("_" * int(len(expression) * 1.4))
-print(solve_for(solve_for(tree, a), b))
-
-print("_" * int(len(expression) * 1.4))
-print(
-    solve_for(build_tree(parse("a^2 = b - 1")), a)
-)  # what i want for now a = (b - 1) ^ (1/2)
-
+# print("_" * int(len(expression) * 1.4))
+# print(
+#     solve_for(build_tree(parse("a^2 = b - 1")), a)
+# )  # what i want for now a = (b - 1) ^ (1/2)

@@ -104,6 +104,54 @@ def collect_terms(node: Operation, terms: list[Atom] = None, simplify_node=True)
     return terms
 
 
+def collect_variables(
+    factors: list[Atom], terms: list[Atom] = None, simplify_node=False
+) -> list[Variable]:
+    # this could be a parameter but the call to simplify does not modify anything is it really necessary
+
+    variables = list(filter(lambda f: isinstance(f, Variable), factors))
+
+    if 0 == len(variables):
+        return variables
+
+    if not terms:
+        return variables
+
+    scores = [0] * len(variables)
+
+    # just loop through entire array, this thing is not meant for efficiency
+    # calling function could pass just a slice of terms
+
+    def increment_scores(potential: Variable):
+        for i, var in enumerate(variables):
+            if compare_atoms(potential, var):
+                scores[i] += 1
+
+    for i in range(len(terms)):
+        sub_term = simplify(terms[i]) if simplify_node else terms[i]
+
+        if isinstance(sub_term, Variable):
+            increment_scores(sub_term)
+        elif sub_term.token_type & TT_Mult and isinstance(sub_term, Operation):
+            for sub_var in collect_factors(sub_term):
+                increment_scores(sub_var)
+
+    # re implement a sorting function for the third time because the ones provided aren't to my liking
+    for i in range(len(variables)):
+        for j in range(len(variables) - i - 1):
+            # next = terms[j + 1]
+            # curr = terms[j]
+
+            if scores[j] < scores[j + 1]:
+                # swap # does this work?
+                tmp = variables[j]
+                variables[j] = variables[j + 1]
+                variables[j + 1] = tmp
+                pass
+
+    return variables
+
+
 def expand_exponentiation(root: Operation):
     """takes a value like [(a * b) ^ 2] expands the factors and adds [a, a, b, b] to factors list"""
     assert isinstance(root, Operation)
@@ -466,63 +514,14 @@ def simplify_addition(node: Atom) -> Atom:
                 variable = term
                 values = [Int((TT_Int | TT_Numeric | TT_Numeric_Positive, "1"))]
             else:
-                # So the issue was with there are two variables to choose from
-                # get factors look at variables, choose the more popular variable with matches
+                factors = collect_factors(term, simplify_node=False)
+                variables = collect_variables(factors, terms)
 
-                factors = collect_factors(
-                    term
-                )  # this is function call doing a redundand simplify
-                variables = list(filter(lambda f: isinstance(f, Variable), factors))
-                if 0 == len(variables):
-                    # this should be a function due to how python works
-                    # and therefore this would be a place to return
+                if len(variables) < 1:
                     i += 1
                     continue
 
-                # have some type of ranking step that chooses which variable to choose
-                scores = [1] * len(variables)
-
-                j = i + 1
-                while j < len(terms):
-                    sub_term = simplify(terms[j])
-                    if isinstance(sub_term, Variable):
-                        for k, var in enumerate(variables):
-                            if compare_varible(var, sub_term):
-                                # MEMORYISCHEAP
-                                scores[k] += 1
-                    elif (
-                        isinstance(sub_term, Operation)
-                        and sub_term.token_type & TT_Mult
-                    ):
-                        # reuse factors
-                        for k, var in enumerate(variables):
-                            for sub_var in collect_factors(sub_term):
-                                if compare_varible(var, sub_var):
-                                    scores[k] += 1
-
-                    j += 1
-
-                vidx = 0
-                for j in range(1, len(scores)):
-
-                    if scores[vidx] < scores[j]:
-                        vidx = j
-                    elif scores[vidx] > 1 and scores[vidx] == scores[j]:
-                        # !TODO: figure out what to do i a situation like this
-                        print(
-                            "two variables are equally used",
-                            f"vidx: {vidx}",
-                            scores,
-                            list(map(str, variables)),
-                        )
-
-                if 1 == scores[vidx]:
-                    # there is no other occurence of the chosen value therefore this should actually return out
-                    # but cannot be bothered
-                    i += 1
-                    continue
-
-                variable = variables[vidx]
+                variable = variables[0]
                 factors.remove(variable)
                 # reconstruct values from factors
 
@@ -867,40 +866,8 @@ def print_simplification_status(node: Atom, expected: str, s=simplify):
     print(f"[{str(simplified) == expected}]", node, "=>", simplified)
 
 
-node = build_tree(parse("-1 * (b + (a * 2)) * 2"))
-print_simplification_status(
-    node,
-    "-4 * a + -2 * b",
-    lambda x: simplify_multiplication_distribute(simplify_multiplication(x)),
-)
-
-node = build_tree(parse("-2 * (b + 2)"))
-print_simplification_status(
-    node,
-    "-2 * b + -4",
-    lambda x: simplify_addition(simplify_multiplication_distribute(simplify_multiplication(x))),
-)
-
-node = build_tree(parse("(a + 3) * (b + 2)"))
-print_simplification_status(
-    node,
-    "(6 + 3 * b) + (2 * a + b * a)",
-    lambda x: simplify_multiplication_distribute(simplify_multiplication(x)),
-)
-
-node = build_tree(parse("(a + 3) * (b + 2) * 2"))
-print_simplification_status(
-    node,
-    "(12 + 6 * b) + (4 * a + (2 * b) * a)",
-    lambda x: simplify_multiplication_distribute(simplify_multiplication(x)),
-)
-
-node = build_tree(parse("(6 + 2 * a) + (3 * b + a * b)"))
-print_simplification_status(node, "(2 * a + (a + 3) * b) + 6", simplify_addition)
-
-node = build_tree(parse("a*x + b*c - (d * x + e * f)"))
-# node = build_tree(parse("a*x + b*c + (-1*d * x + -1*e * f)"))
-print_simplification_status(node, "((-1 * e) * f + b * c) + (a + -1 * d) * x", simplify)
+node = build_tree(parse("b * x + c * ((1 * x) * -1)"))
+print_simplification_status(node, "(-1 * c + b) * x")
 
 """
     a = (-1 * 8b + 2) / 2b
