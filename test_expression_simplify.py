@@ -65,7 +65,7 @@ class Addition(unittest.TestCase):
         test("b * x + c * ((1 * x) * -1)", "(-1 * c + b) * x")
         test("b * x + (-1 * c) * x", "(-1 * c + b) * x")
 
-        test("x * ((b * k) * -1) + (x) * (c * -1)", "(-1 * c + (-1 * k) * b) * x")
+        test("x * ((b * k) * -1) + (x) * (c * -1)", "(-1 * c + (-1 * b) * k) * x")
 
         test("-1 * c + b * a", "-1 * c + b * a")
 
@@ -112,11 +112,24 @@ class Multiplication(unittest.TestCase):
         test("(a / 3) * 3 * 4", "4 * a")
         test("(a / 3) * (3 / a) * 4", "4")
 
-    def test_distribute (self):
-        test = assert_simplified(self, lambda x: simplify_multiplication_distribute(simplify_multiplication(x)))
+    def test_distribute(self):
+        test = assert_simplified(
+            self,
+            lambda x: simplify_multiplication_distribute(simplify_multiplication(x)),
+        )
 
-        test("(a + 3) * (b + 2)", "(6 + 3 * b) + (2 * a + b * a)" )
+        test("(a + 3) * (b + 2)", "(6 + 3 * b) + (2 * a + b * a)")
         test("(a + 3) * (b + 2) * 2", "(12 + 6 * b) + (4 * a + (2 * b) * a)")
+
+        test("(-1 * (b + a * 2)) * 2", "-4 * a + -2 * b")
+
+        test(
+            "-2 * (b + 2)", "-4 + -2 * b"
+        )  # NOTE: this might change if the distribute call is passed to simplify_addition
+
+        test("(a + 3) * (b + 2)", "(6 + 3 * b) + (2 * a + b * a)")
+        test("((a + 3) * (b + 2)) * 2", "(12 + 6 * b) + (4 * a + (2 * b) * a)")
+
 
 class Subtraction(unittest.TestCase):
     def test_initial(self):
@@ -125,6 +138,11 @@ class Subtraction(unittest.TestCase):
         test("2 - 2", "0")  #   0
         test("2 - 2 - 2", "-2")  # -2 + 2 - 2 => -2 + -2 + 2
         test("-a - 2 - a - 4 * a", "-6 * a + -2")
+        test(
+            "(a  * x + b * c) - (d * x + e * f)",
+            "((-1 * f) * e + b * c) + (a + -1 * d) * x",
+        )
+
         # TODO: think about rectifying [a + -b] => [a - b]
 
 
