@@ -67,7 +67,7 @@ def solve_for(tree: Atom, target: Variable, show_steps=False) -> Equals:
     def set_node(
         node: Operation, key: Literal["left", "right"], atom: Atom
     ) -> Operation:
-        """this is a workaround becaus this language implements actually *real* classes"""
+        """this is a workaround because this language implements actually *real* classes"""
         if key == "left":
             node.left = atom
             return node.left
@@ -107,6 +107,19 @@ def solve_for(tree: Atom, target: Variable, show_steps=False) -> Equals:
                 Int((TT_Int | TT_Numeric, "1")),
                 opposite_right,
             )
+        elif root.token_type & TT_Div and is_variable_in_tree(root.right, target):
+            # now what this dude got to do is multiply the right side with
+            set_node(
+                tree,
+                tree_destination,
+                Operation((RESERVED_IDENTITIES["*"], "*"), opposite_left, root.right),
+            )
+            set_node(tree, tree_target, root.left)
+
+            tmp = tree_destination
+            tree_destination = tree_target
+            tree_target = tmp
+            continue
         else:
             opposite_operator_token = get_opposite_operation(
                 (root.token_type, root.value)
@@ -119,15 +132,26 @@ def solve_for(tree: Atom, target: Variable, show_steps=False) -> Equals:
         set_node(tree, tree_destination, opposite_operation)
         set_node(tree, tree_target, get_node(root, root_target))
 
+    # for sanity swap over solved variable to always be on the left
+    if tree_target == "right":
+        if show_steps:
+            print(tree)
+
+        tmp = tree.right
+        tree.right = tree.left
+        tree.left = tmp
+
     return tree
 
 
-def print_solver_status(expression: str, variable: Variable, answer: str):
+def print_solver_status(
+    expression: str, variable: Variable, answer: str, show_steps=False
+):
     if __name__ != "__main__":
         return
 
     node = build_tree(parse(expression))
-    solved = solve_for(node, variable)
+    solved = solve_for(node, variable, show_steps)
 
     print(f"[{str(solved) == answer}]", node, "=>", solved)
 
@@ -150,4 +174,5 @@ print_solver_status("a ^ 2 = b - 1", a, "a = (b - 1) ^ (1 / 2)")
 # print_solver_status("a = (b - 1) ^ (1 / 2)", b, "")
 
 print_solver_status("a / b = c", a, "a = c * b")
-print_solver_status("a / b = c", b, "b = a / c")
+print_solver_status("a / b = c", b, "b = a / c", True)
+print_solver_status("a / (b + 10) = c", b, "b = a / c - 10", True)
