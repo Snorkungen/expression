@@ -72,6 +72,25 @@ RESERVED_IDENTITIES = {
 }
 
 
+def ismathematical_alphanumeric_symbol(char: str) -> bool:
+    return ord(char[0]) >= 0x1D400 and ord(char[0]) <= 0x1D7FF
+
+
+def issubscript(char: str) -> bool:
+    n = ord(char[0])
+
+    if n >= 0x2080 and n <= 0x209C and n != 0x208F:
+        return True
+
+    if n == 0x2C7C:
+        return True
+
+    if n >= 0x1D62 and n <= 0x1D6A:
+        return True
+
+    return False
+
+
 def parse(
     input: str, RESERVED_IDENTITIES=RESERVED_IDENTITIES
 ) -> Iterable[Tuple[int, Any]]:
@@ -84,8 +103,9 @@ def parse(
     while i < len(input):
         char = input[i]
         i += 1
-        if not char.isascii():
-            raise "this program does only support unicode characters"
+
+        if not char.isascii() and not issubscript(char) and not ismathematical_alphanumeric_symbol(char):
+            raise ValueError(f"{char} : unsupported charachter")
 
         if char.isspace():
             if token_type == 0:
@@ -98,7 +118,7 @@ def parse(
 
         if token_type == 0:
             # there is nothing to initialize stuff
-            if char.isnumeric():
+            if char.isnumeric() and not issubscript(char):
                 # what we're dealing with is something numeric
                 token_type = TT_Numeric | TT_Int
             else:
@@ -125,7 +145,7 @@ def parse(
                         tokens_positions.append(i)
                         break
         if token_type & TT_Numeric:
-            if char.isnumeric():
+            if char.isnumeric() and not issubscript(char):
                 buffer += char
             elif char == ".":
                 buffer += "."
@@ -141,7 +161,9 @@ def parse(
 
         if token_type & TT_Ident:
             # first check that the char is not reserved and special
-            if char in RESERVED_IDENTITIES or char.isnumeric():
+            if char in RESERVED_IDENTITIES or (
+                char.isnumeric() and not issubscript(char)
+            ):
                 if buffer:  # prevent adding an empty buffer to tokens
                     tokens.append((token_type, buffer))
                     tokens_positions.append(i)
@@ -149,7 +171,7 @@ def parse(
             else:
                 buffer += char
 
-            if char.isnumeric():
+            if char.isnumeric() and not issubscript(char):
                 token_type = TT_Int
 
         # final thing in loop check buffer for a reserved identity
@@ -259,3 +281,5 @@ def parsed_to_string(parsed: Iterable[Tuple[int, Any]], space: str = " ") -> str
 assert parsed_to_string(parse("12.01 + 1"), space="") == "12.01+1"
 assert len(parse("-1")) == 1
 assert parsed_to_string(parse("-a"), space="") == "-1*a"
+assert parsed_to_string(parse("a₀ + 1 - 𝜃 + 𝛑")) == "a₀ + 1 - 𝜃 + 𝛑"
+
