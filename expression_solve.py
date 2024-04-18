@@ -19,7 +19,7 @@ from expression_tree_builder import (
     Variable,
     build_tree,
     is_variable_in_tree,
-    compare_varible,
+    compare_variable,
 )
 
 
@@ -75,7 +75,7 @@ def solve_for(tree: Atom, target: Variable, show_steps=False) -> Equals:
         return node.right
 
     # loop until variable is the top node on the side of interest
-    while not compare_varible(get_node(tree, tree_target), target):
+    while not compare_variable(get_node(tree, tree_target), target):
         if show_steps:
             print(tree)
 

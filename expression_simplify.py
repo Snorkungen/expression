@@ -22,7 +22,7 @@ from expression_tree_builder import (
     Operation,
     Variable,
     build_tree,
-    compare_varible,
+    compare_variable,
 )
 
 
@@ -47,7 +47,7 @@ def compare_atoms(a: Atom, b: Atom) -> bool:
         return a.value == b.value
 
     if isinstance(a, Variable):
-        return compare_varible(a, b)
+        return compare_variable(a, b)
 
     if isinstance(a, Operation):
         # TODO: create a function that compares operation trees,
@@ -269,7 +269,7 @@ def simplify_multiplication(node: Atom) -> Atom:
             while j < len(factors):
                 sub_factor = factors[j]
 
-                if isinstance(sub_factor, Variable) and compare_varible(
+                if isinstance(sub_factor, Variable) and compare_variable(
                     factors[j], variable
                 ):
                     values.append(Int((TT_Int | TT_Numeric | TT_Numeric_Positive, "1")))
@@ -278,7 +278,7 @@ def simplify_multiplication(node: Atom) -> Atom:
                 elif (
                     isinstance(sub_factor, Operation)
                     and sub_factor.token_type & TT_Exponent
-                    and compare_varible(sub_factor.left, variable)
+                    and compare_variable(sub_factor.left, variable)
                 ):
                     print(variable, sub_factor, "E")
                     values.append(sub_factor.right)
@@ -534,7 +534,7 @@ def simplify_addition(node: Atom) -> Atom:
             j = i + 1
             while j < len(terms):
                 sub_term = simplify(terms[j])
-                if compare_varible(variable, sub_term):
+                if compare_variable(variable, sub_term):
                     values.append(Int((TT_Int | TT_Numeric | TT_Numeric_Positive, "1")))
                     terms.pop(j)
                     continue
@@ -544,7 +544,7 @@ def simplify_addition(node: Atom) -> Atom:
                     k = 0
                     pos = -1
                     while k < len(factors):
-                        if compare_varible(factors[k], variable):
+                        if compare_variable(factors[k], variable):
                             pos = k
                         k += 1
                     if pos >= 0:

@@ -255,7 +255,7 @@ def flatten_tree(node: Atom) -> Iterable[Tuple[int, str]]:
     return [token]
 
 
-def compare_varible(a: Variable, b: Variable) -> bool:
+def compare_variable(a: Variable, b: Variable) -> bool:
     return (
         a.value == b.value
     )  # in future the variable might have more information contained, such as metadata
@@ -266,7 +266,7 @@ def is_variable_in_tree(root: Atom, node: Atom) -> bool:
 
     if not isinstance(root, Operation):
         if root.token_type == TT_Ident:
-            return compare_varible(root, node)
+            return compare_variable(root, node)
         return False
 
     atoms = [root.left, root.right]
@@ -277,7 +277,7 @@ def is_variable_in_tree(root: Atom, node: Atom) -> bool:
             atoms.extend((atom.left, atom.right))
             continue
 
-        if type(atom) == Variable and compare_varible(atom, node):
+        if type(atom) == Variable and compare_variable(atom, node):
             return True
 
     return False
