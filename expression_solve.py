@@ -122,36 +122,32 @@ def solve_for(tree: Atom, target: Variable, show_steps=False) -> Equals:
     return tree
 
 
-# TODO: write tests
-def print_solver(expression, variable):
-    tokens = parse(expression)
-    tree = build_tree(tokens)
+def print_solver_status(expression: str, variable: Variable, answer: str):
+    if __name__ != "__main__":
+        return
 
-    print(expression, f"[{variable}] =>", solve_for(tree, variable))
+    node = build_tree(parse(expression))
+    solved = solve_for(node, variable)
+
+    print(f"[{str(solved) == answer}]", node, "=>", solved)
 
 
 a = Variable((TT_Ident, "a"))
 b = Variable((TT_Ident, "b"))
 
-print_solver("10 + a * 20 / 10 = b", a)
-print_solver("10 + a * 20 / 10 = b", b)
+print_solver_status("10 + a * 20 / 10 = b", a, "a = ((b - 10) * 10) / 20")
+print_solver_status("a = ((b - 10) * 10) / 20", b, "(a * 20) / 10 + 10 = b")
 
-expression = "10 + a * 20 / 10 = b"
-tokens = parse(expression)
-tree = build_tree(tokens)
+print_solver_status(
+    "(a + 10 / 2) / 6 = b * 10 + 10", a, "a = (b * 10 + 10) * 6 - 10 / 2"
+)
+print_solver_status(
+    "a = (b * 10 + 10) * 6 - 10 / 2", b, "((a + 10 / 2) / 6 - 10) / 10 = b"
+)
 
-# print(solve_for(tree, a))
-# print("_" * int(len(expression) * 1.4))
-# print(solve_for(solve_for(tree, a), b))
+# NOTE: there should this program be aware that square root could be positive or negative
+print_solver_status("a ^ 2 = b - 1", a, "a = (b - 1) ^ (1 / 2)")
+# print_solver_status("a = (b - 1) ^ (1 / 2)", b, "")
 
-# expression = "(a + 10 / 2) / 6 = b * 10 + 10"
-# tree = build_tree(parse(expression))
-# print("_" * int(len(expression) * 1.4))
-# print(solve_for(tree, a))
-# print("_" * int(len(expression) * 1.4))
-# print(solve_for(solve_for(tree, a), b))
-
-# print("_" * int(len(expression) * 1.4))
-# print(
-#     solve_for(build_tree(parse("a^2 = b - 1")), a)
-# )  # what i want for now a = (b - 1) ^ (1/2)
+print_solver_status("a / b = c", a, "a = c * b")
+print_solver_status("a / b = c", b, "b = a / c")
