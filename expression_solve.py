@@ -11,6 +11,7 @@ from expression_parser import (
     parse,
     RESERVED_IDENTITIES,
 )
+from expression_simplify import simplify
 from expression_tree_builder import (
     Atom,
     Int,
@@ -42,15 +43,30 @@ def solve_for(tree: Atom, target: Variable, show_steps=False) -> Equals:
 
     assert is_variable_in_tree(tree, target), "Variable must be in expression"
 
+    tree = copy(tree)
+
     if is_variable_in_tree(tree.left, target) and is_variable_in_tree(
         tree.right, target
     ):
-        assert False, "Target variable must be on only on side of the expression"
-
-    tree = copy(
-        tree
-    )  # do not know if this should be a deepcopy because i'm modifying information
-
+        if not compare_variable(tree.right, target) and isinstance(
+            tree.right, Operation
+        ):
+            if not is_variable_in_tree(tree.right.right, target):
+                tmp = tree.right.left
+                tree.right = tree.right.right
+                tree.left = Operation((RESERVED_IDENTITIES["-"], "-"), tree.left, tmp)
+            elif not is_variable_in_tree(tree.right.left, target):
+                tmp = tree.right.right
+                tree.right = tree.right.left
+                tree.left = Operation((RESERVED_IDENTITIES["-"], "-"), tree.left, tmp)
+            else:
+                tree.left = Operation(
+                    (RESERVED_IDENTITIES["-"], "-"), tree.left, tree.right
+                )
+                tree.right = Int((TT_Int | TT_Numeric, "0"))
+        else:
+            assert False, "Target variable must be on only on side of the expression"
+            
     # check the side that the varible is on
     # this variable is for assigning and checking something idk what i'm actually doing
     tree_target = "left" if is_variable_in_tree(tree.left, target) else "right"
@@ -77,18 +93,25 @@ def solve_for(tree: Atom, target: Variable, show_steps=False) -> Equals:
     # loop until variable is the top node on the side of interest
     while not compare_variable(get_node(tree, tree_target), target):
         if show_steps:
-            print(tree)
+            print(
+                tree,
+            )
 
         # this is the root of the side with the variable on
         root = get_node(tree, tree_target)
-
         assert isinstance(
             root, Operation
         ), f"{tree} side must either be target or an operation"
         assert type(root) != Equals, 'expression cannot contain more than one "=" sign'
 
-        if is_variable_in_tree(root.left, a) and is_variable_in_tree(root.right, a):
-            assert False, "There can only be on target variable in an expression"
+        if is_variable_in_tree(root.left, target) and is_variable_in_tree(
+            root.right, target
+        ):
+            root = simplify(root)
+            assert not (
+                is_variable_in_tree(root.left, target)
+                and is_variable_in_tree(root.right, target)
+            ), "There can only be on target variable in an expression"
 
         # the side of the root that the target is on
         root_target = "right" if is_variable_in_tree(root.right, target) else "left"
@@ -159,20 +182,25 @@ def print_solver_status(
 a = Variable((TT_Ident, "a"))
 b = Variable((TT_Ident, "b"))
 
-print_solver_status("10 + a * 20 / 10 = b", a, "a = ((b - 10) * 10) / 20")
-print_solver_status("a = ((b - 10) * 10) / 20", b, "(a * 20) / 10 + 10 = b")
+# print_solver_status("10 + a * 20 / 10 = b", a, "a = ((b - 10) * 10) / 20")
+# print_solver_status("a = ((b - 10) * 10) / 20", b, "(a * 20) / 10 + 10 = b")
+
+# print_solver_status(
+#     "(a + 10 / 2) / 6 = b * 10 + 10", a, "a = (b * 10 + 10) * 6 - 10 / 2"
+# )
+# print_solver_status(
+#     "a = (b * 10 + 10) * 6 - 10 / 2", b, "((a + 10 / 2) / 6 - 10) / 10 = b"
+# )
+
+# # NOTE: there should this program be aware that square root could be positive or negative
+# print_solver_status("a ^ 2 = b - 1", a, "a = (b - 1) ^ (1 / 2)")
+# # print_solver_status("a = (b - 1) ^ (1 / 2)", b, "")
+
+# print_solver_status("a / b = c", a, "a = c * b")
+# print_solver_status("a / b = c", b, "b = a / c", True)
+# print_solver_status("a / (b + 10) = c", b, "b = a / c - 10", True)
+
 
 print_solver_status(
-    "(a + 10 / 2) / 6 = b * 10 + 10", a, "a = (b * 10 + 10) * 6 - 10 / 2"
+    "b*a + c*d = b*e + c*f", b, "b = (c * f - c * d) / (a + -1 * e)", show_steps=True
 )
-print_solver_status(
-    "a = (b * 10 + 10) * 6 - 10 / 2", b, "((a + 10 / 2) / 6 - 10) / 10 = b"
-)
-
-# NOTE: there should this program be aware that square root could be positive or negative
-print_solver_status("a ^ 2 = b - 1", a, "a = (b - 1) ^ (1 / 2)")
-# print_solver_status("a = (b - 1) ^ (1 / 2)", b, "")
-
-print_solver_status("a / b = c", a, "a = c * b")
-print_solver_status("a / b = c", b, "b = a / c", True)
-print_solver_status("a / (b + 10) = c", b, "b = a / c - 10", True)
