@@ -1,29 +1,8 @@
 from copy import copy
 from typing import Tuple, Literal
-from expression_parser import (
-    TT_OOO_MASK,
-    TT_Exponent,
-    TT_Ident,
-    TT_Int,
-    TT_Numeric,
-    TT_Numeric_Negative,
-    TT_Operation,
-    TT_Div,
-    TT_Sub,
-    parse,
-    RESERVED_IDENTITIES,
-)
+from expression_parser import *
 from expression_simplify import simplify
-from expression_tree_builder import (
-    Atom,
-    Int,
-    Equals,
-    Operation,
-    Variable,
-    build_tree,
-    is_variable_in_tree,
-    compare_variable,
-)
+from expression_tree_builder import *
 
 
 def get_opposite_operation(token: Tuple[int, str]):
@@ -185,16 +164,66 @@ def solve_for(tree: Atom, target: Variable, show_steps=False) -> Equals:
     return tree
 
 
+def replace_variables(node: Equals, values: list[Equals]):
+    node = copy(node)
+
+    for value in values:
+        # assume left is the variable
+        variable = value.left
+
+        nodes: list[Atom] = []
+
+        if compare_variable(node.left, variable):
+            node.left = value.right
+        else:
+            nodes.append(node.left)
+        if compare_variable(node.right, variable):
+            node.right = value.right
+        else:
+            nodes.append(node.right)
+        while len(nodes):
+            sub_node = nodes.pop()
+            if isinstance(sub_node, Operation):
+                if compare_variable(sub_node.left, variable):
+                    sub_node.left = value.right
+                else:
+                    nodes.append(sub_node.left)
+                if compare_variable(node.right, variable):
+                    sub_node.right = value.right
+                else:
+                    nodes.append(sub_node.right)
+
+    return node
+
+
 def print_solver_status(
     expression: str, variable: Variable, answer: str, show_steps=False
 ):
     if __name__ != "__main__":
         return
 
-    node = build_tree(parse(expression))
+    node: Equals = build_tree(parse(expression))
     solved = solve_for(node, variable, show_steps)
 
     print(f"[{str(solved) == answer}]", node, "=>", solved)
+
+    var_replacement = None
+    if isinstance(node.right, Variable):
+        var_replacement = Equals(
+            (RESERVED_IDENTITIES["="], "="), node.right, Int(parse("9")[0])
+        )
+    if isinstance(node.left, Variable):
+        var_replacement = Equals(
+            (RESERVED_IDENTITIES["="], "="), node.left, Int(parse("9")[0])
+        )
+
+    if var_replacement and not compare_variable(variable, var_replacement.left):
+        test = simplify(
+            replace_variables(
+                node, [replace_variables(solved, [var_replacement]), var_replacement]
+            )
+        )
+        print(test)
 
 
 a = Variable((TT_Ident, "a"))
@@ -226,4 +255,4 @@ print_solver_status(
 )
 
 # print_solver_status("10 * b - a = 0", b, "b = (0 + a) / 10")
-print_solver_status("-1 * b - a = 10", a, "a = (10 - -1 * b) / -1", show_steps=True)
+print_solver_status("-1 * b - a = 10", a, "a = (10 - -1 * b) / -1", show_steps=False)

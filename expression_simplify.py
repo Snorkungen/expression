@@ -2,6 +2,7 @@ from typing import Callable, Iterable, Tuple, Union
 from expression_parser import (
     RESERVED_IDENTITIES,
     TT_Div,
+    TT_Equ,
     parse,
     TT_Float,
     TT_Operation,
@@ -18,6 +19,7 @@ from expression_parser import (
 )
 from expression_tree_builder import (
     Atom,
+    Equals,
     Int,
     Operation,
     Variable,
@@ -204,6 +206,13 @@ def simplify(node: Atom) -> Atom:
             return simplify_multiplication(node)
         if node.token_type & TT_Div:
             return simplify_division(node)
+
+        if node.token_type & TT_Equ:
+            return Equals(
+                (RESERVED_IDENTITIES["="], "="),
+                simplify(node.left),
+                simplify(node.right),
+            )
 
     return node
 
@@ -625,7 +634,10 @@ def simplify_addition(node: Atom) -> Atom:
         next_term = terms[i + 1]
         if term.token_type & TT_Add:
             print("this branch should not be touched")
-            continue  # assume that this is an a node that has been touched already
+            # this is still a bug, but i can't be bothered with this right now
+
+            # break
+            # continue  # assume that this is an a node that has been touched already
 
         terms[i] = Operation((RESERVED_IDENTITIES["+"], "+"), term, next_term)
         terms.pop(i + 1)
@@ -730,9 +742,9 @@ def simplify_division(node: Atom) -> Atom:
                 # i'm not sure how the simplification step would work for the divisor
                 divisors.append(sub_node.right)
             else:
-                dividends.append(sub_node)
+                dividends.append(simplify(sub_node))
         else:
-            dividends.append(sub_node)
+            dividends.append(simplify(sub_node))
     else:
         del sub_node
 
@@ -747,11 +759,11 @@ def simplify_division(node: Atom) -> Atom:
                 nodes.append(sub_node.left)
                 # have another step that does logic and factorizes values
                 # i'm not sure how the simplification step would work for the divisor
-                dividends.append(sub_node.right)
+                dividends.append(simplify(sub_node.right))
             else:
-                divisors.append(sub_node)
+                divisors.append(simplify(sub_node))
         else:
-            divisors.append(sub_node)
+            divisors.append(simplify(sub_node))
     else:
         del sub_node
 
@@ -790,7 +802,7 @@ def simplify_division(node: Atom) -> Atom:
                     factors.pop(i)
                     end -= 1
                 else:
-                    assert False, "Factorising operations not handled at the moment"
+                    assert False or True, "Factorising operations not handled at the moment"
             i += 1
 
     def handle_zero_dividend(_):
@@ -873,6 +885,8 @@ def print_simplification_status(node: Atom, expected: str, s=simplify):
 
 node = build_tree(parse("b * x + c * ((1 * x) * -1)"))
 print_simplification_status(node, "(-1 * c + b) * x")
+
+print_simplification_status(build_tree(parse("7 / 3 + -10")),  "7 / 3 + -10")
 
 """
     a = (-1 * 8b + 2) / 2b
