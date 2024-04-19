@@ -1,27 +1,6 @@
 from typing import Tuple, Any, Iterable
 from copy import deepcopy
-from expression_parser import (
-    RESERVED_IDENTITIES,
-    TT_OOO_MASK,
-    TT_RESERVED_1,
-    TT_Equ,
-    TT_Exponent,
-    TT_Operation_Commutative,
-    parsed_to_string,
-    TT_Operation,
-    TT_Mult,
-    TT_Div,
-    TT_Numeric,
-    TT_Int,
-    TT_Ident,
-    TT_Float,
-    TT_Add,
-    TT_Sub,
-    TT_Tokens,
-    TT_INFO_MASK,
-    TT_Func,
-    TT_Comma,
-)
+from expression_parser import *
 
 TT_Atom = TT_RESERVED_1
 
@@ -42,6 +21,10 @@ class Variable(Atom):
         self.token_type = token[0]
         self.value = token[1]
 
+    @staticmethod
+    def create(name: str):
+        return Variable((TT_Ident, name))
+
 
 class Int(Atom):
     value: int
@@ -50,6 +33,15 @@ class Int(Atom):
         super().__init__()
         self.token_type = token[0]
         self.value = int(token[1])
+
+    @staticmethod
+    def create(value: int):
+        token_type = (
+            TT_Int
+            | TT_Numeric
+            | (TT_Numeric_Negative if value < 0 else TT_Numeric_Positive)
+        )
+        return Int((token_type, value))
 
 
 class Float(Atom):
@@ -90,6 +82,12 @@ class Operation(Atom):
 
     def __str__(self) -> str:
         return parsed_to_string(flatten_tree(self))
+
+    @staticmethod
+    def create(symbol: str, left: Atom, right: Atom):
+        assert symbol in RESERVED_IDENTITIES
+        assert RESERVED_IDENTITIES[symbol] & TT_Operation
+        return Operation((RESERVED_IDENTITIES[symbol], symbol), left, right)
 
 
 class Equals(Operation):

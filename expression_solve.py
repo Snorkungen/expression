@@ -1,7 +1,7 @@
 from copy import copy
 from typing import Tuple, Literal
 from expression_parser import *
-from expression_simplify import simplify
+from expression_simplify import collect_factors, collect_variables, simplify
 from expression_tree_builder import *
 
 
@@ -170,7 +170,6 @@ def replace_variables(node: Equals, values: list[Equals]):
     for value in values:
         # assume left is the variable
         variable = value.left
-
         nodes: list[Atom] = []
 
         if compare_variable(node.left, variable):
@@ -186,11 +185,11 @@ def replace_variables(node: Equals, values: list[Equals]):
             if isinstance(sub_node, Operation):
                 if compare_variable(sub_node.left, variable):
                     sub_node.left = value.right
-                else:
+                elif isinstance(sub_node.left, Operation):
                     nodes.append(sub_node.left)
-                if compare_variable(node.right, variable):
+                if compare_variable(sub_node.right, variable):
                     sub_node.right = value.right
-                else:
+                elif isinstance(sub_node.right, Operation):
                     nodes.append(sub_node.right)
 
     return node
@@ -209,22 +208,44 @@ def print_solver_status(
 
     var_replacement = None
     if isinstance(node.right, Variable):
-        var_replacement = Equals(
-            (RESERVED_IDENTITIES["="], "="), node.right, Int(parse("9")[0])
-        )
+        var_replacement = Equals((RESERVED_IDENTITIES["="], "="), node.right, node.left)
     if isinstance(node.left, Variable):
-        var_replacement = Equals(
-            (RESERVED_IDENTITIES["="], "="), node.left, Int(parse("9")[0])
-        )
-
+        var_replacement = Equals((RESERVED_IDENTITIES["="], "="), node.left, node.right)
     if var_replacement and not compare_variable(variable, var_replacement.left):
-        test = simplify(
-            replace_variables(
-                node, [replace_variables(solved, [var_replacement]), var_replacement]
-            )
-        )
+        # print(replace_variables(solved, [var_replacement]))
+        test = simplify(replace_variables(solved, [var_replacement]),)
         print(test)
+    else:
+        var_replacements: list[Equals] = []
+        left_variables = collect_variables(collect_factors(node.left))
+        for var in left_variables:
+            if compare_variable(var, variable):
+                continue
+            b = False
+            for vr in var_replacements:
+                if compare_variable(vr.left, var):
+                    b = True
+            if b:
+                continue
+            var_replacement = Equals.create("=", var, Int.create(ord(var.value) - 91))
+            var_replacements.append(var_replacement)
+        right_variables = collect_variables(collect_factors(node.right))
+        for var in right_variables:
+            if compare_variable(var, variable):
+                continue
+            b = False
+            for vr in var_replacements:
+                if compare_variable(vr.left, var):
+                    b = True
+            if b:
+                continue
+            var_replacement = Equals.create("=", var, Int.create(ord(var.value)- 91))
+            var_replacements.append(var_replacement)
 
+        test = replace_variables(node,[solved, *var_replacements])
+        print(simplify(test))
+
+        
 
 a = Variable((TT_Ident, "a"))
 b = Variable((TT_Ident, "b"))
@@ -251,7 +272,7 @@ print_solver_status("a / (b + 10) = c", b, "b = a / c - 10")
 print_solver_status(
     "b*a + c*d = b*e + c*f",
     b,
-    "b = (c * f - c * d) / (a + -1 * e)",
+    "b = (c * f - d * c) / (a + -1 * e)",
 )
 
 # print_solver_status("10 * b - a = 0", b, "b = (0 + a) / 10")

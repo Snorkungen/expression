@@ -87,10 +87,9 @@ def collect_terms(node: Operation, terms: list[Atom] = None, simplify_node=True)
         terms = []
     if not isinstance(node, Operation):
         return terms
-
     nodes = [node.left, node.right]
     while len(nodes) > 0:
-        sub_node = nodes.pop()
+        sub_node = simplify(nodes.pop()) if simplify_node else nodes.pop()
         if isinstance(sub_node, Operation) and sub_node.token_type & TT_Add:
             nodes.extend((sub_node.right, sub_node.left))
         else:
@@ -206,6 +205,8 @@ def simplify(node: Atom) -> Atom:
             return simplify_multiplication(node)
         if node.token_type & TT_Div:
             return simplify_division(node)
+        if node.token_type & TT_Exponent:
+            return simplify_exponentiation(node)
 
         if node.token_type & TT_Equ:
             return Equals(
@@ -633,11 +634,8 @@ def simplify_addition(node: Atom) -> Atom:
         term = terms[i]
         next_term = terms[i + 1]
         if term.token_type & TT_Add:
-            print("this branch should not be touched")
-            # this is still a bug, but i can't be bothered with this right now
-
-            # break
-            # continue  # assume that this is an a node that has been touched already
+            print("this branch should not be touched", node)
+            break  # assume that this is an a node that has been touched already
 
         terms[i] = Operation((RESERVED_IDENTITIES["+"], "+"), term, next_term)
         terms.pop(i + 1)
@@ -742,16 +740,29 @@ def simplify_division(node: Atom) -> Atom:
                 # i'm not sure how the simplification step would work for the divisor
                 divisors.append(sub_node.right)
             else:
-                dividends.append(simplify(sub_node))
+                simplified_sub_node = simplify(sub_node)
+                if (
+                    simplified_sub_node.token_type & TT_Mult
+                    or simplified_sub_node.token_type & TT_Div
+                ):
+                    nodes.append(simplified_sub_node)
+                    continue
+                dividends.append(simplified_sub_node)
         else:
-            dividends.append(simplify(sub_node))
+            simplified_sub_node = simplify(sub_node)
+            if (
+                simplified_sub_node.token_type & TT_Mult
+                or simplified_sub_node.token_type & TT_Div
+            ):
+                nodes.append(simplified_sub_node)
+                continue
+            dividends.append(simplified_sub_node)
     else:
         del sub_node
 
     nodes = [node.right]
     while 0 < len(nodes):
         sub_node = nodes.pop()
-
         if isinstance(sub_node, Operation):
             if sub_node.token_type & TT_Mult:
                 nodes.extend((sub_node.left, sub_node.right))
@@ -761,9 +772,23 @@ def simplify_division(node: Atom) -> Atom:
                 # i'm not sure how the simplification step would work for the divisor
                 dividends.append(simplify(sub_node.right))
             else:
-                divisors.append(simplify(sub_node))
+                simplified_sub_node = simplify(sub_node)
+                if (
+                    simplified_sub_node.token_type & TT_Mult
+                    or simplified_sub_node.token_type & TT_Div
+                ):
+                    nodes.append(simplified_sub_node)
+                    continue
+                divisors.append(simplified_sub_node)
         else:
-            divisors.append(simplify(sub_node))
+            simplified_sub_node = simplify(sub_node)
+            if (
+                simplified_sub_node.token_type & TT_Mult
+                or simplified_sub_node.token_type & TT_Div
+            ):
+                nodes.append(simplified_sub_node)
+                continue
+            divisors.append(simplified_sub_node)
     else:
         del sub_node
 
@@ -802,7 +827,9 @@ def simplify_division(node: Atom) -> Atom:
                     factors.pop(i)
                     end -= 1
                 else:
-                    assert False or True, "Factorising operations not handled at the moment"
+                    assert (
+                        False or True
+                    ), "Factorising operations not handled at the moment"
             i += 1
 
     def handle_zero_dividend(_):
@@ -815,7 +842,7 @@ def simplify_division(node: Atom) -> Atom:
 
     factorize_factors(divisors, handle_zero_divisor)  # factorize divisors
 
-    # print(list(map(str, dividends)))
+    # print(list(map(str, dividends)), node)
     # print(list(map(str, divisors)))
 
     # cancel out same values, don't know how to express what i'm actually doing
@@ -864,6 +891,9 @@ def simplify_division(node: Atom) -> Atom:
             dividends, (RESERVED_IDENTITIES["*"], "*")
         )
 
+    if 1 == len(divisors) and divisors[0].value == -1:
+        return simplify_multiplication(Operation.create("*", divisors[0], dividend))
+
     divisor = __construct_node_from_factors(divisors, (RESERVED_IDENTITIES["*"], "*"))
 
     # TODO: break out identities from dividend
@@ -871,6 +901,30 @@ def simplify_division(node: Atom) -> Atom:
     # [(5 * a * b) / 4] => 5 / 4 * (a * b)
 
     return Operation((RESERVED_IDENTITIES["/"], "/"), dividend, divisor)
+
+
+def simplify_exponentiation(node: Atom):
+    assert isinstance(node, Operation)
+    assert node.token_type & TT_Exponent
+
+    factors: list[Atom] = [node.right]
+    base = node.left
+    while isinstance(base, Operation) and base.token_type & TT_Exponent:
+        factors.append(base.right)
+        base = base.left
+
+    exponent = __construct_node_from_factors(factors, (RESERVED_IDENTITIES["*"], "*"))
+    base = simplify(base)
+
+    if exponent.token_type & TT_Numeric and exponent.value < 0:
+        raise "I do not know what a negative exponent is"
+
+    if exponent.token_type & TT_Numeric and exponent.value == 1:
+        return base
+
+    print(simplify_exponentiation.__name__, base, exponent)
+
+    return node
 
 
 def print_simplification_status(node: Atom, expected: str, s=simplify):
@@ -886,7 +940,16 @@ def print_simplification_status(node: Atom, expected: str, s=simplify):
 node = build_tree(parse("b * x + c * ((1 * x) * -1)"))
 print_simplification_status(node, "(-1 * c + b) * x")
 
-print_simplification_status(build_tree(parse("7 / 3 + -10")),  "7 / 3 + -10")
+print_simplification_status(build_tree(parse("7 / 3 + -10")), "7 / 3 + -10")
+print_simplification_status(
+    build_tree(parse("(((10 + (a * 20) / 10) - 10) * 10) / 20")), "a"
+)
+print_simplification_status(
+    build_tree(parse("(((10 + (a * 20) / 10) - 10) * 10) / 20")), "a"
+)
+print_simplification_status(build_tree(parse("4 / -1 + 10")), "6")
+
+print_simplification_status(build_tree(parse("(-1 * 8 * b + 2) / (2*b)")), "1 / b + -4")
 
 """
     a = (-1 * 8b + 2) / 2b

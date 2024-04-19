@@ -65,13 +65,13 @@ class Addition(unittest.TestCase):
         test("b * x + c * ((1 * x) * -1)", "(-1 * c + b) * x")
         test("b * x + (-1 * c) * x", "(-1 * c + b) * x")
 
-        test("x * ((b * k) * -1) + (x) * (c * -1)", "(-1 * c + (-1 * b) * k) * x")
+        test("x * ((b * k) * -1) + (x) * (c * -1)", "(-1 * c + (-1 * k) * b) * x")
 
-        test("-1 * c + b * a", "-1 * c + b * a")
+        test("-1 * c + b * a", "-1 * c + a * b")
 
-        test("x * b + (x) * (c * -1) + 2 * 4", "(b + -1 * c) * x + 8")
+        test("x * b + (x) * (c * -1) + 2 * 4", "(-1 * c + b) * x + 8")
 
-        test("x * b + (2 * x) * (c * -1) + 2", "(b + -2 * c) * x + 2")
+        test("x * b + (2 * x) * (c * -1) + 2", "(-2 * c + b) * x + 2")
 
         test("2 * x + x + 2", "3 * x + 2")
 
@@ -140,7 +140,7 @@ class Subtraction(unittest.TestCase):
         test("-a - 2 - a - 4 * a", "-6 * a + -2")
         test(
             "(a  * x + b * c) - (d * x + e * f)",
-            "((-1 * f) * e + b * c) + (a + -1 * d) * x",
+            "((-1 * f) * e + c * b) + (a + -1 * d) * x",
         )
 
         # TODO: think about rectifying [a + -b] => [a - b]
