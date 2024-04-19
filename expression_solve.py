@@ -6,8 +6,10 @@ from expression_parser import (
     TT_Ident,
     TT_Int,
     TT_Numeric,
+    TT_Numeric_Negative,
     TT_Operation,
     TT_Div,
+    TT_Sub,
     parse,
     RESERVED_IDENTITIES,
 )
@@ -66,7 +68,7 @@ def solve_for(tree: Atom, target: Variable, show_steps=False) -> Equals:
                 tree.right = Int((TT_Int | TT_Numeric, "0"))
         else:
             assert False, "Target variable must be on only on side of the expression"
-            
+
     # check the side that the varible is on
     # this variable is for assigning and checking something idk what i'm actually doing
     tree_target = "left" if is_variable_in_tree(tree.left, target) else "right"
@@ -143,6 +145,22 @@ def solve_for(tree: Atom, target: Variable, show_steps=False) -> Equals:
             tree_destination = tree_target
             tree_target = tmp
             continue
+        elif root.token_type & TT_Sub and is_variable_in_tree(root.right, target):
+            opposite_operator_token = (RESERVED_IDENTITIES["-"], "-")
+
+            opposite_operation = Operation(
+                opposite_operator_token, opposite_left, opposite_right
+            )
+
+            set_node(tree, tree_destination, opposite_operation)
+            root = Operation(
+                (RESERVED_IDENTITIES["*"], "*"),
+                Int((TT_Int | TT_Numeric | TT_Numeric_Negative, "-1")),
+                root.right,
+            )
+
+            set_node(tree, tree_target, root)
+            continue
         else:
             opposite_operator_token = get_opposite_operation(
                 (root.token_type, root.value)
@@ -182,25 +200,30 @@ def print_solver_status(
 a = Variable((TT_Ident, "a"))
 b = Variable((TT_Ident, "b"))
 
-# print_solver_status("10 + a * 20 / 10 = b", a, "a = ((b - 10) * 10) / 20")
-# print_solver_status("a = ((b - 10) * 10) / 20", b, "(a * 20) / 10 + 10 = b")
+print_solver_status("10 + a * 20 / 10 = b", a, "a = ((b - 10) * 10) / 20")
+print_solver_status("a = ((b - 10) * 10) / 20", b, "b = (a * 20) / 10 + 10")
 
-# print_solver_status(
-#     "(a + 10 / 2) / 6 = b * 10 + 10", a, "a = (b * 10 + 10) * 6 - 10 / 2"
-# )
-# print_solver_status(
-#     "a = (b * 10 + 10) * 6 - 10 / 2", b, "((a + 10 / 2) / 6 - 10) / 10 = b"
-# )
+print_solver_status(
+    "(a + 10 / 2) / 6 = b * 10 + 10", a, "a = (b * 10 + 10) * 6 - 10 / 2"
+)
+print_solver_status(
+    "a = (b * 10 + 10) * 6 - 10 / 2", b, "b = ((a + 10 / 2) / 6 - 10) / 10"
+)
 
-# # NOTE: there should this program be aware that square root could be positive or negative
-# print_solver_status("a ^ 2 = b - 1", a, "a = (b - 1) ^ (1 / 2)")
-# # print_solver_status("a = (b - 1) ^ (1 / 2)", b, "")
+# NOTE: there should this program be aware that square root could be positive or negative
+print_solver_status("a ^ 2 = b - 1", a, "a = (b - 1) ^ (1 / 2)")
+# print_solver_status("a = (b - 1) ^ (1 / 2)", b, "")
 
-# print_solver_status("a / b = c", a, "a = c * b")
-# print_solver_status("a / b = c", b, "b = a / c", True)
-# print_solver_status("a / (b + 10) = c", b, "b = a / c - 10", True)
+print_solver_status("a / b = c", a, "a = c * b")
+print_solver_status("a / b = c", b, "b = a / c")
+print_solver_status("a / (b + 10) = c", b, "b = a / c - 10")
 
 
 print_solver_status(
-    "b*a + c*d = b*e + c*f", b, "b = (c * f - c * d) / (a + -1 * e)", show_steps=True
+    "b*a + c*d = b*e + c*f",
+    b,
+    "b = (c * f - c * d) / (a + -1 * e)",
 )
+
+# print_solver_status("10 * b - a = 0", b, "b = (0 + a) / 10")
+print_solver_status("-1 * b - a = 10", a, "a = (10 - -1 * b) / -1", show_steps=True)

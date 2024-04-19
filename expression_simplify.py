@@ -503,7 +503,10 @@ def simplify_addition(node: Atom) -> Atom:
             token_type = TT_Int | TT_Numeric
             token_type |= TT_Numeric_Negative if sum < 0 else TT_Numeric_Positive
 
-            terms[i] = Int((token_type, str(sum)))
+            if 0 == sum:
+                terms.pop(i)
+            else:
+                terms[i] = Int((token_type, str(sum)))
 
         elif (
             isinstance(term, Variable)
@@ -582,6 +585,8 @@ def simplify_addition(node: Atom) -> Atom:
 
     if len(terms) == 1:
         return terms[0]
+    elif len(terms) == 0:
+        return Int((TT_Numeric | TT_Int, "0"))
 
     # I can't be bothered to do this better
     # an implementation of bubble sort
