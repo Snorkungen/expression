@@ -1,3 +1,4 @@
+from functools import reduce
 from typing import Callable, Iterable, Tuple, Union
 from expression_parser import (
     RESERVED_IDENTITIES,
@@ -89,19 +90,21 @@ def collect_terms(node: Operation, terms: list[Atom] = None, simplify_node=True)
         return terms
     nodes = [node.left, node.right]
     while len(nodes) > 0:
-        sub_node = simplify(nodes.pop()) if simplify_node else nodes.pop()
+        sub_node = nodes.pop()
         if isinstance(sub_node, Operation) and sub_node.token_type & TT_Add:
-            nodes.extend((sub_node.right, sub_node.left))
+            nodes.extend((sub_node.left, sub_node.right))
         else:
             potential_term = simplify(sub_node) if simplify_node else sub_node
             # simplify multiplication might return and addition operation
-            if isinstance(sub_node, Operation) and sub_node.token_type & TT_Add:
-                nodes.extend((potential_term.right, potential_term.left))
+            if (
+                isinstance(potential_term, Operation)
+                and potential_term.token_type & TT_Add
+            ):
+                nodes.extend((potential_term.left, potential_term.right))
             else:
                 terms.append(potential_term)
 
     del sub_node
-
     return terms
 
 
@@ -333,7 +336,6 @@ def simplify_multiplication(node: Atom) -> Atom:
                     continue
                     raise RuntimeError("If this happens there is a bug somewhere")
 
-                # print(factor, sub_factor, list(map(str, factors)))
                 if isinstance(sub_factor, Operation) and sub_factor.token_type & TT_Div:
                     dividends.append(sub_factor.left)
                     divisors.append(sub_factor.right)
@@ -355,7 +357,6 @@ def simplify_multiplication(node: Atom) -> Atom:
                 dividend = __join_nodes_into_tree(dividend, dividends[2:])
                 # simplify_division will simplify multiplication
 
-            # print(list(map(str, divisors)), factor)
             if len(divisors) < 2:
                 divisor = divisors[0]
             else:
@@ -588,6 +589,76 @@ def simplify_addition(node: Atom) -> Atom:
                 # the simplyfy call is due is is to do a final check
                 Operation((RESERVED_IDENTITIES["*"], "*"), count, variable)
             )
+        elif isinstance(term, Operation) and term.token_type & TT_Div:
+            # first collect dividends and divisors
+            indices = [i]  # thees three are "associative arrays"
+            dividends = [term.left]  # connection of indices are important
+            divisors = [term.right]
+
+            j = i + 1
+            while j < len(terms):
+                sub_term = terms[j]
+                if not (
+                    isinstance(sub_term, Operation) and sub_term.token_type & TT_Div
+                ):
+                    j += 1
+                    continue
+
+                # the sub_term is an divison operation
+                indices.append(j)
+                dividends.append(sub_term.left)
+                divisors.append(sub_term.right)
+                j += 1
+
+            # NOTE: could do easy thing and multiply each side with the other bases to get a common base
+            # but first i'll try to see if there are common factors that could get multiplied with
+
+            if len(indices) == 1:
+                i += 1
+                continue
+
+            # multiply each dividend and divisor by the the other factors
+            common_divisor = None
+            for j in range(len(divisors)):
+                # get factors
+                factor = reduce(
+                    lambda val, divisor: (
+                        val
+                        if divisor
+                        == divisors[
+                            j
+                        ]  # note comparison only works due to the objects retaining their memory address
+                        else Operation.create("*", divisor, val)
+                    ),
+                    divisors,
+                    Int.create(1),
+                )
+
+                dividends[j] = Operation.create("*", dividends[j], factor)
+
+                if j == 0:
+                    common_divisor = Operation.create("*", factor, divisors[0])
+
+            for j in indices[1:]:
+                terms.pop(j)  # remove other fractions from terms
+
+            dividend = reduce(
+                lambda val, dividend: Operation.create("+", dividend, val),
+                dividends[2:],
+                Operation.create("+", dividends[0], dividends[1]),
+            )
+
+            terms[i] = simplify_division(
+                Operation.create("/", dividend, common_divisor)
+            )
+
+            ###
+            ### NOTE: terms might spit out whatever so re run entire loop agin to not repeat
+            i = 0
+            continue
+            ###
+            ###
+
         i += 1
 
     # use the same strategy as tree builder
@@ -842,9 +913,6 @@ def simplify_division(node: Atom) -> Atom:
 
     factorize_factors(divisors, handle_zero_divisor)  # factorize divisors
 
-    # print(list(map(str, dividends)), node)
-    # print(list(map(str, divisors)))
-
     # cancel out same values, don't know how to express what i'm actually doing
     i = 0
     while i < len(divisors):
@@ -922,7 +990,11 @@ def simplify_exponentiation(node: Atom):
     if exponent.token_type & TT_Numeric and exponent.value == 1:
         return base
 
-    print(simplify_exponentiation.__name__, base, exponent)
+    if isinstance(exponent, Int):
+        if isinstance(base, Int):
+            return Int.create(base.value**exponent.value)
+
+    # print(simplify_exponentiation.__name__, base, exponent)
 
     return node
 
@@ -950,6 +1022,7 @@ print_simplification_status(
 print_simplification_status(build_tree(parse("4 / -1 + 10")), "6")
 
 print_simplification_status(build_tree(parse("(-1 * 8 * b + 2) / (2*b)")), "1 / b + -4")
+
 
 """
     a = (-1 * 8b + 2) / 2b

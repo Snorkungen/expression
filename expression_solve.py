@@ -1,7 +1,7 @@
 from copy import copy
 from typing import Tuple, Literal
 from expression_parser import *
-from expression_simplify import collect_factors, collect_variables, simplify
+from expression_simplify import simplify
 from expression_tree_builder import *
 
 
@@ -175,10 +175,12 @@ def replace_variables(node: Equals, values: list[Equals]):
         if compare_variable(node.left, variable):
             node.left = value.right
         else:
+            node.left = copy(node.left)
             nodes.append(node.left)
         if compare_variable(node.right, variable):
             node.right = value.right
         else:
+            node.right = copy(node.right)
             nodes.append(node.right)
         while len(nodes):
             sub_node = nodes.pop()
@@ -186,13 +188,38 @@ def replace_variables(node: Equals, values: list[Equals]):
                 if compare_variable(sub_node.left, variable):
                     sub_node.left = value.right
                 elif isinstance(sub_node.left, Operation):
+                    sub_node.left = copy(sub_node.left)
                     nodes.append(sub_node.left)
                 if compare_variable(sub_node.right, variable):
                     sub_node.right = value.right
                 elif isinstance(sub_node.right, Operation):
+                    sub_node.right = copy(sub_node.right)
                     nodes.append(sub_node.right)
 
     return node
+
+
+def collect_all_variables(node: Atom) -> list[Variable]:
+    if not isinstance(node, Operation):
+        if isinstance(node, Variable):
+            return [node]
+        return []
+
+    variables: list[Variable] = []
+
+    nodes = [node.left, node.right]
+    while len(nodes):
+        sub_node = nodes.pop()
+
+        if isinstance(sub_node, Operation):
+            nodes.extend([sub_node.left, sub_node.right])
+            continue
+
+        if isinstance(sub_node, Variable):
+            variables.append(sub_node)
+            continue
+
+    return variables
 
 
 def print_solver_status(
@@ -204,51 +231,41 @@ def print_solver_status(
     node: Equals = build_tree(parse(expression))
     solved = solve_for(node, variable, show_steps)
 
-    print(f"[{str(solved) == answer}]", node, "=>", solved)
-
     var_replacement = None
     if isinstance(node.right, Variable):
         var_replacement = Equals((RESERVED_IDENTITIES["="], "="), node.right, node.left)
     if isinstance(node.left, Variable):
         var_replacement = Equals((RESERVED_IDENTITIES["="], "="), node.left, node.right)
-    if var_replacement and not compare_variable(variable, var_replacement.left):
-        # print(replace_variables(solved, [var_replacement]))
-        test = simplify(replace_variables(solved, [var_replacement]),)
-        print(test)
+
+    var_replacements: list[Equals] = []
+    variables = collect_all_variables(node)
+    for var in variables:
+        if compare_variable(var, variable):
+            continue
+        b = False
+        for vr in var_replacements:
+            if compare_variable(vr.left, var):
+                b = True
+        if b:
+            continue
+        var_replacement = Equals.create(
+            "=", var, Int.create(sum(map(ord, var.value)) - (64 * len(var.value)))
+        )
+        var_replacements.append(var_replacement)
+    test = replace_variables(node, [solved, *var_replacements])
+
+    test_result = simplify(Operation.create("-", test.left, test.right))
+    if test_result.value == 0:
+        pass
     else:
-        var_replacements: list[Equals] = []
-        left_variables = collect_variables(collect_factors(node.left))
-        for var in left_variables:
-            if compare_variable(var, variable):
-                continue
-            b = False
-            for vr in var_replacements:
-                if compare_variable(vr.left, var):
-                    b = True
-            if b:
-                continue
-            var_replacement = Equals.create("=", var, Int.create(ord(var.value) - 91))
-            var_replacements.append(var_replacement)
-        right_variables = collect_variables(collect_factors(node.right))
-        for var in right_variables:
-            if compare_variable(var, variable):
-                continue
-            b = False
-            for vr in var_replacements:
-                if compare_variable(vr.left, var):
-                    b = True
-            if b:
-                continue
-            var_replacement = Equals.create("=", var, Int.create(ord(var.value)- 91))
-            var_replacements.append(var_replacement)
+        pass
+    print(f"[{str(solved) == answer}, {0}]", node, "=>", solved)
 
-        test = replace_variables(node,[solved, *var_replacements])
-        print(simplify(test))
-
-        
 
 a = Variable((TT_Ident, "a"))
 b = Variable((TT_Ident, "b"))
+x = Variable((TT_Ident, "x"))
+vi = Variable((TT_Ident, "iv"))
 
 print_solver_status("10 + a * 20 / 10 = b", a, "a = ((b - 10) * 10) / 20")
 print_solver_status("a = ((b - 10) * 10) / 20", b, "b = (a * 20) / 10 + 10")
@@ -266,14 +283,30 @@ print_solver_status("a ^ 2 = b - 1", a, "a = (b - 1) ^ (1 / 2)")
 
 print_solver_status("a / b = c", a, "a = c * b")
 print_solver_status("a / b = c", b, "b = a / c")
-print_solver_status("a / (b + 10) = c", b, "b = a / c - 10")
+print_solver_status("a / (b + 10) = c", b, "b = a / c - 10", show_steps=False)
 
 
 print_solver_status(
-    "b*a + c*d = b*e + c*f",
-    b,
-    "b = (c * f - d * c) / (a + -1 * e)",
+    "b*a + c*d = b*e + c*f", b, "b = (c * f - c * d) / (a + -1 * e)", show_steps=False
 )
 
-# print_solver_status("10 * b - a = 0", b, "b = (0 + a) / 10")
+print_solver_status("10 * b - a = 0", b, "b = (0 + a) / 10")
 print_solver_status("-1 * b - a = 10", a, "a = (10 - -1 * b) / -1", show_steps=False)
+
+print_solver_status(
+    "v^2 = iv^2 + 2a(x - xi)",
+    a,
+    "a = ((v ^ 2 - iv ^ 2) / (x - xi)) / 2",
+    show_steps=True,
+)
+
+print_solver_status(
+    "v^2 = iv^2 + 2a(x - xi)",
+    vi,
+    "iv = (v ^ 2 - (2 * a) * (x - xi)) ^ (1 / 2)",
+    show_steps=True,
+)
+
+print_solver_status(
+    "x = 1/2*a*b^2", b, "b = (x / ((1 / 2) * a)) ^ (1 / 2)", show_steps=True
+)
