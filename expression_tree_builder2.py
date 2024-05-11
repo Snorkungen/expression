@@ -83,7 +83,7 @@ class Operation(TokenValue):
     Operations "Addition"(+), "Multiplication"(*) , "Division"(/), "exponentiation"
     """
 
-    values: Iterable[TokenValue]
+    values: Tuple[TokenValue]
     token_value: str
 
     def __init__(self, token: Token, *values: TokenValue, self_flatten=True) -> None:
