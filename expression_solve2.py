@@ -240,6 +240,15 @@ def _simplify_division(
     # Can't even be bothered to log this action
 
     if compare_values(node.left, node.right):
+        solve_action_list.append(
+            {
+                "type": "simplify",
+                "method_name": _simplify_division.__name__,
+                "node_str": str(node),
+                "parameters": (),
+                "derrived_values": (str(1),),
+            }
+        )
         return Integer.create(1)
 
     return node
@@ -459,129 +468,6 @@ def solve_for2(
     node = Operation((node.token_type, node.token_value), *node.values)
     node.values = list(node.values)  # ensure that the values are a list
 
-    # first things first handle the target variable being on both sides
-    if is_target_variable_in_tree(node.left, target) and is_target_variable_in_tree(
-        node.right, target
-    ):
-        # move variable from 1-side to the other side
-
-        # default to move from right to left
-        if isinstance(node.right, Operation):
-            if node.right.token_type & TT_Add:
-                # loop through values and subtract the target value from the node
-                values = list(node.right.values)
-                i = 0
-                while i < len(values):
-                    value = values[i]
-                    if not is_target_variable_in_tree(value, target):
-                        i += 1
-                        continue
-
-                    _subtract(node, 0, value, solve_action_list=solve_action_list)
-                    values.pop(i)
-
-                    # this is verbose but that is the whole point right
-                    node.values[1] = _construct_token_value_with_values(
-                        node.values[1], *values
-                    )
-            elif node.right.token_type & TT_Mult:
-                values = list(node.right.values)
-                i = 0
-                while i < len(values):
-                    value = values[i]
-                    if not is_target_variable_in_tree(value, target):
-                        i += 1
-                        continue
-
-                    _divide(node, 0, value, solve_action_list=solve_action_list)
-                    values.pop(i)
-                    node.values[1] = _construct_token_value_with_values(
-                        node.values[1], *values
-                    )
-            elif node.right.token_type & TT_Div:
-                if is_target_variable_in_tree(node.right.right, target):
-                    if (
-                        isinstance(node.right.right, Operation)
-                        and node.right.right.token_type & TT_Mult
-                    ):
-                        values = list(node.right.right.values)
-                        i = 0
-                        while i < len(values):
-                            value = values[i]
-                            if not is_target_variable_in_tree(value, target):
-                                i += 1
-                                continue
-                            _multiply(
-                                node, 0, value, solve_action_list=solve_action_list
-                            )
-                            values.pop(i)
-
-                            if len(values) == 0:
-                                node.values[1] = node.right.left
-
-                            node.values[1] = Operation(
-                                node.right.token,
-                                node.right.left,
-                                _construct_token_value_with_values(
-                                    node.right.right, *values
-                                ),
-                            )
-                    else:
-                        # the variable is in the divisor
-                        _multiply(
-                            node,
-                            0,
-                            node.right.right,
-                            solve_action_list=solve_action_list,
-                        )
-                        node.values[1] = node.right.left
-                if node.right.token_type & TT_Div and is_target_variable_in_tree(
-                    node.right.left, target
-                ):
-                    if (
-                        isinstance(node.right.left, Operation)
-                        and node.right.left.token_type & TT_Mult
-                    ):
-                        values = list(node.right.left.values)
-                        i = 0
-                        while i < len(values):
-                            value = values[i]
-                            if not is_target_variable_in_tree(value, target):
-                                i += 1
-                                continue
-                            _multiply(
-                                node, 0, value, solve_action_list=solve_action_list
-                            )
-                            values.pop(i)
-
-                            if len(values) == 0:
-                                node.values[1] = node.right.left
-
-                            node.values[1] = Operation(
-                                node.left.token,
-                                _construct_token_value_with_values(
-                                    node.right.left, *values
-                                ),
-                                node.right.right,
-                            )
-                    else:
-                        _divide(
-                            node,
-                            0,
-                            node.right.left,
-                            solve_action_list=solve_action_list,
-                        )
-                        node.values[1] = Operation(
-                            node.right.token, Integer.create(1), node.right.right
-                        )
-            else:
-                print(node.right)
-                raise NotImplementedError
-        else:
-            # the only value on the right side is the target variable
-            _subtract(node, 0, node.right, solve_action_list=solve_action_list)
-            node.values[1] = Integer.create(0)
-
     # determine where the variable is
 
     target_idx = 0 if is_target_variable_in_tree(node.left, target) else 1
@@ -596,7 +482,9 @@ def solve_for2(
                 return True
         return False
 
-    while not compare_variables(node.values[target_idx], target):
+    while not compare_variables(
+        node.values[target_idx], target
+    ) or is_target_variable_in_tree(node.values[destin_idx], target):
         if is_target_variable_in_tree(node.left, target) and is_target_variable_in_tree(
             node.right, target
         ):
@@ -628,10 +516,42 @@ def solve_for2(
                         node.values[destin_idx] = _construct_token_value_with_values(
                             node.values[destin_idx], *values
                         )
+                elif destin.token_type & TT_Mult:
+                    values = list(destin.values)
+                    i = 0
+                    while i < len(values):
+                        value = values[i]
+                        if not is_target_variable_in_tree(value, target):
+                            i += 1
+                            continue
+
+                        _divide(
+                            node, target_idx, value, solve_action_list=solve_action_list
+                        )
+                        values.pop(i)
+                        node.values[destin_idx] = _construct_token_value_with_values(
+                            node.values[destin_idx], *values
+                        )
+                elif destin.token_type & TT_Div:
+                    values = list(destin.values)
+
+                    _multiply(
+                        node,
+                        target_idx,
+                        destin.right,
+                        solve_action_list=solve_action_list,
+                    )
+
+                    node.values[destin_idx] = destin.left
+
+                    if is_target_variable_in_tree(node.left, target):
+                        tmp = target_idx
+                        target_idx = destin_idx
+                        destin_idx = tmp
                 else:
-                    raise NotImplemented("operation not handled")
+                    raise NotImplementedError("operation not handled")
             else:
-                raise NotImplemented("Not an operation")
+                raise NotImplementedError("Not an operation")
 
         root = node.values[target_idx]
         if not isinstance(root, Operation):
@@ -678,7 +598,9 @@ def solve_for2(
                     root, target, solve_action_list
                 )
 
+
                 if multiple_targets_in_values(factored_value.values, target):
+                    print(node)
                     raise NotImplementedError
 
                 node.values[target_idx] = factored_value
@@ -741,6 +663,48 @@ def solve_for2(
     return node
 
 
+def collect_all_variables(node: TokenValue) -> list[Variable]:
+    if not isinstance(node, Operation):
+        if isinstance(node, Variable):
+            return [node]
+        return []
+
+    variables: list[Variable] = []
+
+    nodes = list(node.values)
+    while len(nodes):
+        sub_node = nodes.pop()
+
+        if isinstance(sub_node, Operation):
+            nodes.extend(sub_node.values)
+            continue
+
+        if isinstance(sub_node, Variable):
+            variables.append(sub_node)
+            continue
+
+    return variables
+
+
+def replace_variables(node: Operation, *values: Tuple[Operation, ...]):
+    node_values = list(node.values)
+    for value in values:
+        assert isinstance(value, Operation)
+        assert value.token_type & TT_Equ
+
+        # assume left is the variable
+        variable = value.left
+
+        for i in range(len(node_values)):
+            if compare_variables(node_values[i], variable):
+                node_values[i] = value.right
+            elif is_target_variable_in_tree(node_values[i], variable):
+                node_values[i] = replace_variables(node_values[i], value)
+
+        node = _construct_token_value_with_values(node, *node_values)
+    return node
+
+
 def _print_solve_action_list(solve_action_list: list[SolveActionEntry]):
     for solve_action in solve_action_list:
         if solve_action["type"] == "global":
@@ -777,15 +741,26 @@ def _test_solve_for2(expr, target, show_solve_action_list: Literal[0, 1, 2] = 0)
 
     expr = build_tree2(parse(expr))
     solve_action_list: list[SolveActionEntry] = []
-    solved = solve_for2(expr, target, solve_action_list=solve_action_list)
+
+    try:
+        solved = solve_for2(expr, target, solve_action_list=solve_action_list)
+    except NotImplementedError as e:
+        _print_solve_action_list(solve_action_list)
+        print(solve_action_list[-1]["derrived_values"])
+        raise e
 
     print("Source: ", expr)
     print("Solved: ", solved)
 
     # TODO: write tests that issues valuels for each value
 
-    if show_solve_action_list < 2:
+    if show_solve_action_list == 1:
         _print_solve_action_list(solve_action_list)
+
+    # TODO: implement a method that checks that the created value does indeed match
+    if True and show_solve_action_list == 0:
+        _print_solve_action_list(solve_action_list)
+
     print("-" * 20)
 
 
@@ -793,17 +768,20 @@ a = Variable.create("a")
 b = Variable.create("b")
 
 
-_test_solve_for2("10 + a = b * a", a, 2)
-_test_solve_for2("10 + a = b * a", b, 2)
+_test_solve_for2("10 + a = b * a", a)
+_test_solve_for2("10 + a = b * a", b)
 
-_test_solve_for2("10 + a = b - a", a, 2)
+_test_solve_for2("10 + a = b - a", a)
 
-_test_solve_for2("a * b + c * d = a * e + c * f", a, 2)
+_test_solve_for2("a * b + c * d = a * e + c * f", a)
 
-_test_solve_for2("f = 1 / a", a, 2)
+_test_solve_for2("f = 1 / a", a, 0)
 
-_test_solve_for2("b = c * ((a + v) / a)", a, 2)
+_test_solve_for2("b = c * ((a + v) / a)", a)
 
-_test_solve_for2("a = v / (b / c + -1)", b, 2)
+_test_solve_for2("a = v / (b / c + -1)", b)
 
-_test_solve_for2("b = (a + 1) / (a + 3)", a, 1)
+_test_solve_for2("b = (a + 1) / (a + 3)", a)
+
+_test_solve_for2("a = (a + b) /  3",a)
+# _test_solve_for2("1 / a = (a + b) /  3",a)

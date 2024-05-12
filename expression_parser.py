@@ -1,4 +1,4 @@
-from typing import Iterable, Tuple, Any, Final
+from typing import Iterable, NewType, Tuple, Any, Final
 
 """
     first four(4) bits are reserved for encoding information
@@ -90,6 +90,8 @@ def issubscript(char: str) -> bool:
 
     return False
 
+
+Token = NewType("Token", Tuple[int, Any])
 
 def parse(
     input: str, RESERVED_IDENTITIES=RESERVED_IDENTITIES
