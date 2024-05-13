@@ -33,6 +33,14 @@ def is_target_variable_in_tree(node: Operation, target: Variable) -> bool:
 
     return False
 
+def multiple_targets_in_values(values: Iterable, target: Variable) -> bool:
+        count = 0
+        for value in values:
+            if is_target_variable_in_tree(value, target):
+                count += 1
+            if count > 1:
+                return True
+        return False
 
 def _subtract(
     node: Operation,
@@ -366,6 +374,7 @@ def _simplify_factor_target(
         if value.token_type & TT_Operation == 0 or not isinstance(value, Operation):
             i += 1
             continue  # ignore not interested right now and as mentioned functions do not exist
+
         if value.token_type & TT_Mult:
             # here check if there are any values that need to be distributed
             distributed_value = None
@@ -392,6 +401,66 @@ def _simplify_factor_target(
                 for j in range(len(distributed_value.values)):
                     values[i + j] = distributed_value.values[j]
 
+                continue  
+        elif value.token_type & TT_Div:            
+            if is_target_variable_in_tree(value.right, target):
+                """
+                    1 / a + a => (1 + a * a) / a
+                    this would require, that this is done significantly differently
+                    because now the algorithm would have to muliply the divisor and subtract something
+                    and now you have a quadratic equation
+                    c + a * a = b * a
+                    a * a - b * a + c = 0
+                    a^2 - b * a + c = 0
+                """
+                raise NotImplementedError("unsupported, when the target is in the divisor:", str(value)) 
+            elif is_target_variable_in_tree(value.left, target):
+                """
+                    (a + 2) / 2 => 1 / 2 * (a + 2)
+                    (a * 2) / 2 => 2 / 2 * a
+                    ((a + 2) * 2) / 2 => 2 / 2 * (a + 2)
+                    where do i check if there actually is the target within the operation
+                """
+                # TODO: make this a seperate solver step
+                value_str = str(value)
+                if compare_values(value.left, target):
+                    values[i] = Operation.create("*", _construct_token_value_with_values(value, Integer.create(1),value.right),value.left)
+                elif value.left.token_type & TT_Add:
+                    """this might have to change if something like (a + a) / 2 => 2 / 2 * a"""
+                    # TODO: support and be aware of more edge cases
+                    values[i] = Operation.create("*", _construct_token_value_with_values(value, Integer.create(1),value.right),value.left)
+                elif value.left.token_type & TT_Mult and isinstance(value.left, Operation):
+                    lvalues = list(value.left.values)
+                    factors = []
+                    j = 0
+                    # grab every factor that contains the target
+                    while j < len(lvalues):
+                        lval = lvalues[j]
+                        if is_target_variable_in_tree(lval, target):
+                            factors.append(lval)
+                            lvalues.pop(j)
+                        j += 1
+                    
+                    values[i] = Operation.create(
+                        "*", 
+                        _construct_token_value_with_values(
+                            value,
+                            _construct_token_value_with_values(value.left, *lvalues),
+                            value.right
+                        ),
+                        *factors
+                    )
+                else:
+                    raise NotImplementedError
+
+                solve_action_list.append({
+                    "type": "simplify",
+                    "method_name": "_temp_name_ripout_target_from_fraction",
+                    "node_str": value_str,
+                    "derrived_values":  (str(values[i]),),
+                    "parameters": ()
+                })
+                
                 continue
 
         i += 1
@@ -473,15 +542,6 @@ def solve_for2(
     target_idx = 0 if is_target_variable_in_tree(node.left, target) else 1
     destin_idx = 1 if is_target_variable_in_tree(node.left, target) else 0
 
-    def multiple_targets_in_values(values: Iterable, target: Variable) -> bool:
-        count = 0
-        for value in values:
-            if is_target_variable_in_tree(value, target):
-                count += 1
-            if count > 1:
-                return True
-        return False
-
     while not compare_variables(
         node.values[target_idx], target
     ) or is_target_variable_in_tree(node.values[destin_idx], target):
@@ -551,13 +611,14 @@ def solve_for2(
                 else:
                     raise NotImplementedError("operation not handled")
             else:
-                raise NotImplementedError("Not an operation")
+                _subtract(node, target_idx, node.values[destin_idx], solve_action_list=solve_action_list)
+                node.values[destin_idx] = Integer.create(0)
 
         root = node.values[target_idx]
         if not isinstance(root, Operation):
             raise NotImplementedError(
-                "This could be the variable has switched sides or this is a funtction"
-            )
+                "This could be the variable has switched sides or this is a funtction " + str(node)
+             )
         left = root.left
         right = root.right
 
@@ -579,8 +640,10 @@ def solve_for2(
                             node.values[target_idx].values,
                         )
                     )
-
+                elif left.token_type & TT_Div or right.token_type & TT_Div:
+                    raise NotImplementedError("here there should be some logic to simplify the fraction", str(root))
                 else:
+                    print(root, left, right)
                     _multiply(
                         node,
                         destin_idx,
@@ -600,7 +663,7 @@ def solve_for2(
 
 
                 if multiple_targets_in_values(factored_value.values, target):
-                    print(node)
+                    print(node, factored_value)
                     raise NotImplementedError
 
                 node.values[target_idx] = factored_value
@@ -746,7 +809,8 @@ def _test_solve_for2(expr, target, show_solve_action_list: Literal[0, 1, 2] = 0)
         solved = solve_for2(expr, target, solve_action_list=solve_action_list)
     except NotImplementedError as e:
         _print_solve_action_list(solve_action_list)
-        print(solve_action_list[-1]["derrived_values"])
+        if len(solve_action_list):
+            print(solve_action_list[-1]["derrived_values"])
         raise e
 
     print("Source: ", expr)
@@ -768,20 +832,39 @@ a = Variable.create("a")
 b = Variable.create("b")
 
 
-_test_solve_for2("10 + a = b * a", a)
-_test_solve_for2("10 + a = b * a", b)
+# _test_solve_for2("10 + a = b * a", a)
+# _test_solve_for2("10 + a = b * a", b)
 
-_test_solve_for2("10 + a = b - a", a)
+# _test_solve_for2("10 + a = b - a", a)
 
-_test_solve_for2("a * b + c * d = a * e + c * f", a)
+# _test_solve_for2("a * b + c * d = a * e + c * f", a)
 
-_test_solve_for2("f = 1 / a", a, 0)
+# _test_solve_for2("f = 1 / a", a, 0)
 
-_test_solve_for2("b = c * ((a + v) / a)", a)
+# _test_solve_for2("b = c * ((a + v) / a)", a)
 
-_test_solve_for2("a = v / (b / c + -1)", b)
+# _test_solve_for2("a = v / (b / c + -1)", b)
 
-_test_solve_for2("b = (a + 1) / (a + 3)", a)
+# _test_solve_for2("b = (a + 1) / (a + 3)", a)
 
-_test_solve_for2("a = (a + b) /  3",a)
-# _test_solve_for2("1 / a = (a + b) /  3",a)
+# _test_solve_for2("a = (a + b) /  3",a)
+
+# TODO: add some form of logic that checks that the input fraction is valid
+# _test_solve_for2("a / 2  = a", a)
+# TODO: add some of logic when there are an infinite amount of answers
+# _test_solve_for2("a / 2  = a * b", a)
+
+_test_solve_for2("a / 2  = a * b + 1", a)
+
+# print(_simplify_factor_target(build_tree2(parse("a / 2 + -1 * a")), a, []))
+# print(_simplify_factor_target(build_tree2(parse("a / (2 * a) + -1 * a")), a, []))
+
+steps = []
+# print(_simplify_factor_target(build_tree2(parse("(a + 2) / 2 + -1 * a")), a, steps))
+
+# print(_simplify_factor_target(build_tree2(parse("(a * 2 * b * a) / 2 + -1 * a")), a, steps))
+# _print_solve_action_list(steps)
+
+# print(_simplify_factor_target(build_tree2(parse(" a * a + -1 * a")), a, steps))
+# print(_simplify_factor_target(build_tree2(parse("(a * 2 * b) / 2 + -1 * a")), a, steps))
+# _print_solve_action_list(steps)
