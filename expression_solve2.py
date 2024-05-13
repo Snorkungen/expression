@@ -5,7 +5,7 @@ from expression_compare import *
 
 
 class SolveActionEntry(TypedDict):
-    type: Literal["global", "simplify"]
+    type: Literal["global", "simplify", "simplify_modify"]
     node_str: str
     method_name: Callable
 
@@ -33,14 +33,16 @@ def is_target_variable_in_tree(node: Operation, target: Variable) -> bool:
 
     return False
 
+
 def multiple_targets_in_values(values: Iterable, target: Variable) -> bool:
-        count = 0
-        for value in values:
-            if is_target_variable_in_tree(value, target):
-                count += 1
-            if count > 1:
-                return True
-        return False
+    count = 0
+    for value in values:
+        if is_target_variable_in_tree(value, target):
+            count += 1
+        if count > 1:
+            return True
+    return False
+
 
 def _subtract(
     node: Operation,
@@ -147,12 +149,15 @@ def _construct_token_value_with_values(
 def _simplify_factors(
     node: Operation, solve_action_list: list[SolveActionEntry]
 ) -> Operation:
-    """calculate the product of all integers"""
+    """
+    calculate the product of all integers
+    Yet be modify as little as possible
+    """
     assert node.token_type & TT_Mult, str(node)
 
     node_str = str(node)
 
-    integer_product = 1
+    integer_idx = -1
     values = list(node.values)
     i = 0
     while i < len(values):
@@ -162,15 +167,21 @@ def _simplify_factors(
             value = _simplify_terms(value, solve_action_list=solve_action_list)
             # this could cause infinite recursion
 
+        if isinstance(value, Operation) and value.token_type & TT_Div:
+            # What to do when multiplying with fractions
+            # An approach where i convert every thing to a fraction and simplify
+            # Then pull out the divisor => a / b => a * (1 / b)
+            value = _simplify_division(value, solve_action_list)
+
         if isinstance(value, Integer):
-            integer_product *= value.token_value
-            values.pop(i)
-            continue
+            if integer_idx >= 0:
+                values[integer_idx].token_value *= value.token_value
+                values.pop(i)
+                continue
+            else:
+                integer_idx = i
 
         i += 1
-
-    if integer_product != 1:
-        values.insert(0, Integer.create(integer_product))
 
     new_node = _construct_token_value_with_values(node, *values)
     if new_node == None:
@@ -198,7 +209,6 @@ def _simplify_terms(
     node_str = str(node)
 
     integer_idx = -1
-    integer_sum = 0
     values = list(node.values)
     i = 0
     while i < len(values):
@@ -206,6 +216,10 @@ def _simplify_terms(
 
         if isinstance(value, Operation) and value.token_type & TT_Mult:
             values[i] = _simplify_factors(value, solve_action_list=solve_action_list)
+            value = values[i]
+
+        if isinstance(value, Operation) and value.token_type & TT_Div:
+            values[i] = _simplify_division(value, solve_action_list=solve_action_list)
             value = values[i]
 
         if isinstance(value, Integer):
@@ -217,9 +231,6 @@ def _simplify_terms(
                 integer_idx = i
 
         i += 1
-
-    if integer_sum != 0:
-        values.append(Integer.create(integer_sum))
 
     new_node = _construct_token_value_with_values(node, *values)
 
@@ -239,25 +250,121 @@ def _simplify_terms(
     return new_node
 
 
+def _simplify_division_flatten(
+    node: Operation, solve_action_list: list[SolveActionEntry]
+) -> Operation:
+    assert node.token_type & TT_Div
+
+    def collect_dividends_and_divisors(
+        node: TokenValue,
+    ) -> Tuple[list[TokenValue], list[TokenValue]]:
+        left: list[TokenValue] = (
+            []
+        )  # a list containing all values that would be a dividend
+        right: list[TokenValue] = []  # a list containinga all dividends
+
+        if node.token_type & TT_Mult and isinstance(node, Operation):
+            for value in node.values:
+                l, r = collect_dividends_and_divisors(value)
+                left.extend(l)
+                right.extend(r)
+        elif node.token_type & TT_Div and isinstance(node, Operation):
+            l, r = collect_dividends_and_divisors(node.left)
+            left.extend(l)
+            right.extend(r)
+            l, r = collect_dividends_and_divisors(node.right)
+            left.extend(r)
+            right.extend(l)
+        else:
+            left.append(node)
+
+        return left, right
+
+    dividends: list[TokenValue] = []
+    divisors: list[TokenValue] = []
+
+    node_str = str(node)
+
+    l, r = collect_dividends_and_divisors(node.left)
+    dividends.extend(l)
+    divisors.extend(r)
+    l, r = collect_dividends_and_divisors(node.right)
+    dividends.extend(r)
+    divisors.extend(l)
+
+    mult_hack = Operation.create("*")
+    node = _construct_token_value_with_values(
+        node,
+        _construct_token_value_with_values(mult_hack, *dividends),
+        _construct_token_value_with_values(mult_hack, *divisors),
+    )
+
+    if str(node) != node_str:
+        solve_action_list.append(
+            {
+                "type": "simplify",
+                "method_name": _simplify_division_flatten.__name__,
+                "node_str": node_str,
+                "parameters": (),
+                "derrived_values": (str(node),),
+            }
+        )
+
+    return node
+
+
 def _simplify_division(
     node: Operation, solve_action_list: list[SolveActionEntry]
 ) -> Operation:
     assert node.token_type & TT_Div
 
-    # TODO: write a better version of this that actually does this thing properly
-    # Can't even be bothered to log this action
+    node = _simplify_division_flatten(node, solve_action_list=solve_action_list)
 
-    if compare_values(node.left, node.right):
-        solve_action_list.append(
-            {
-                "type": "simplify",
-                "method_name": _simplify_division.__name__,
-                "node_str": str(node),
-                "parameters": (),
-                "derrived_values": (str(1),),
-            }
-        )
-        return Integer.create(1)
+    if node.left.token_type & TT_Mult and isinstance(node.left, Operation):
+        dividends = list(node.left.values)
+    else:
+        dividends = [node.left]
+
+    if node.right.token_type & TT_Mult and isinstance(node.right, Operation):
+        divisors = list(node.right.values)
+    else:
+        divisors = [node.right]
+
+    i = 0
+    while i < len(dividends):
+        j = 0
+        while j < len(divisors):
+            if compare_values(dividends[i], divisors[j]):
+                dividends.pop(i)
+                divisors.pop(j)
+                break
+            j += 1
+        else:
+            i += 1
+
+    mult_hack = Operation.create("*")
+    node_str = str(node)
+    node = _construct_token_value_with_values(
+        node,
+        _construct_token_value_with_values(mult_hack, *dividends),
+        _construct_token_value_with_values(mult_hack, *divisors),
+    )
+
+    if isinstance(node, Operation) and node.token_type & TT_Div:
+        if node.left.token_type & TT_Numeric and node.left.token_value == 0:
+            node = Integer.create(0)
+        elif node.right.token_type & TT_Numeric and node.right.token_value == 1:
+            node = node.left
+
+    solve_action_list.append(
+        {
+            "type": "simplify",
+            "method_name": _simplify_division.__name__,
+            "node_str": node_str,
+            "parameters": (),
+            "derrived_values": (str(node),),
+        }
+    )
 
     return node
 
@@ -291,7 +398,7 @@ def _simplify_distribute_factor(
 
         solve_action_list.append(
             {
-                "type": "simplify",
+                "type": "simplify_modify",
                 "method_name": _simplify_distribute_factor.__name__,
                 "node_str": node_str,
                 "parameters": (idx,),
@@ -342,14 +449,17 @@ def _simplify_distribute_dividend(
     distributed_value = _construct_token_value_with_values(
         node.left,
         *map(
-            lambda term: (_construct_token_value_with_values(node, (term), node.right)),
+            lambda term: _simplify_division(
+                _construct_token_value_with_values(node, (term), node.right),
+                solve_action_list,
+            ),
             terms,
         ),
     )
 
     solve_action_list.append(
         {
-            "type": "simplify",
+            "type": "simplify_modify",
             "method_name": _simplify_distribute_dividend.__name__,
             "node_str": str(node_str),
             "parameters": (idx,),
@@ -379,8 +489,8 @@ def _simplify_factor_target(
             # here check if there are any values that need to be distributed
             distributed_value = None
             for j in range(len(value.values)):
+                # TODO: to make this more general check if the specific value is in tree instead of just checking for variable
                 if (
-                    # TODO: to make this more general check if the specific value is in tree instead of just checking for variable
                     not is_target_variable_in_tree(value.values[j], target)
                     or value.values[j].token_type & TT_Operation == 0
                 ):
@@ -401,35 +511,47 @@ def _simplify_factor_target(
                 for j in range(len(distributed_value.values)):
                     values[i + j] = distributed_value.values[j]
 
-                continue  
-        elif value.token_type & TT_Div:            
+                continue
+        elif value.token_type & TT_Div:
             if is_target_variable_in_tree(value.right, target):
-                """
-                    1 / a + a => (1 + a * a) / a
-                    this would require, that this is done significantly differently
-                    because now the algorithm would have to muliply the divisor and subtract something
-                    and now you have a quadratic equation
-                    c + a * a = b * a
-                    a * a - b * a + c = 0
-                    a^2 - b * a + c = 0
-                """
-                raise NotImplementedError("unsupported, when the target is in the divisor:", str(value)) 
+                # 1 / a + a => (1 + a * a) / a
+                # this would require, that this is done significantly differently
+                # because now the algorithm would have to muliply the divisor and subtract something
+                # and now you have a quadratic equation
+                # c + a * a = b * a
+                # a * a - b * a + c = 0
+                # a^2 - b * a + c = 0
+                raise NotImplementedError(
+                    "unsupported, when the target is in the divisor:", str(value)
+                )
             elif is_target_variable_in_tree(value.left, target):
-                """
-                    (a + 2) / 2 => 1 / 2 * (a + 2)
-                    (a * 2) / 2 => 2 / 2 * a
-                    ((a + 2) * 2) / 2 => 2 / 2 * (a + 2)
-                    where do i check if there actually is the target within the operation
-                """
+                # (a + 2) / 2 => 1 / 2 * (a + 2)
+                # (a * 2) / 2 => 2 / 2 * a
+                # ((a + 2) * 2) / 2 => 2 / 2 * (a + 2)
+                # where do i check if there actually is the target within the operation
                 # TODO: make this a seperate solver step
                 value_str = str(value)
                 if compare_values(value.left, target):
-                    values[i] = Operation.create("*", _construct_token_value_with_values(value, Integer.create(1),value.right),value.left)
+                    values[i] = Operation.create(
+                        "*",
+                        _construct_token_value_with_values(
+                            value, Integer.create(1), value.right
+                        ),
+                        value.left,
+                    )
                 elif value.left.token_type & TT_Add:
                     """this might have to change if something like (a + a) / 2 => 2 / 2 * a"""
                     # TODO: support and be aware of more edge cases
-                    values[i] = Operation.create("*", _construct_token_value_with_values(value, Integer.create(1),value.right),value.left)
-                elif value.left.token_type & TT_Mult and isinstance(value.left, Operation):
+                    values[i] = Operation.create(
+                        "*",
+                        _construct_token_value_with_values(
+                            value, Integer.create(1), value.right
+                        ),
+                        value.left,
+                    )
+                elif value.left.token_type & TT_Mult and isinstance(
+                    value.left, Operation
+                ):
                     lvalues = list(value.left.values)
                     factors = []
                     j = 0
@@ -440,28 +562,30 @@ def _simplify_factor_target(
                             factors.append(lval)
                             lvalues.pop(j)
                         j += 1
-                    
+
                     values[i] = Operation.create(
-                        "*", 
+                        "*",
                         _construct_token_value_with_values(
                             value,
                             _construct_token_value_with_values(value.left, *lvalues),
-                            value.right
+                            value.right,
                         ),
-                        *factors
+                        *factors,
                     )
                 else:
                     raise NotImplementedError
 
-                solve_action_list.append({
-                    "type": "simplify",
-                    "method_name": "_temp_name_ripout_target_from_fraction",
-                    "node_str": value_str,
-                    "derrived_values":  (str(values[i]),),
-                    "parameters": ()
-                })
-                
-                continue
+                solve_action_list.append(
+                    {
+                        "type": "simplify_modify",
+                        "method_name": "_temp_name_ripout_target_from_fraction",
+                        "node_str": value_str,
+                        "derrived_values": (str(values[i]),),
+                        "parameters": (),
+                    }
+                )
+
+            continue
 
         i += 1
 
@@ -515,7 +639,7 @@ def _simplify_factor_target(
 
     solve_action_list.append(
         {
-            "type": "simplify",
+            "type": "simplify_modify",
             "method_name": _simplify_factor_target.__name__,
             "node_str": str(node_str),
             "parameters": (str(target),),
@@ -611,14 +735,20 @@ def solve_for2(
                 else:
                     raise NotImplementedError("operation not handled")
             else:
-                _subtract(node, target_idx, node.values[destin_idx], solve_action_list=solve_action_list)
+                _subtract(
+                    node,
+                    target_idx,
+                    node.values[destin_idx],
+                    solve_action_list=solve_action_list,
+                )
                 node.values[destin_idx] = Integer.create(0)
 
         root = node.values[target_idx]
         if not isinstance(root, Operation):
             raise NotImplementedError(
-                "This could be the variable has switched sides or this is a funtction " + str(node)
-             )
+                "This could be the variable has switched sides or this is a funtction "
+                + str(node)
+            )
         left = root.left
         right = root.right
 
@@ -633,15 +763,11 @@ def solve_for2(
                         root, -1, solve_action_list=solve_action_list
                     )
 
-                    # NOTE: the following lines simplifies each divison, but should be removed whe _simplify_distribute_dividend starts simplifying
-                    node.values[target_idx].values = tuple(
-                        map(
-                            lambda v: _simplify_division(v, solve_action_list),
-                            node.values[target_idx].values,
-                        )
-                    )
                 elif left.token_type & TT_Div or right.token_type & TT_Div:
-                    raise NotImplementedError("here there should be some logic to simplify the fraction", str(root))
+                    raise NotImplementedError(
+                        "here there should be some logic to simplify the fraction",
+                        str(root),
+                    )
                 else:
                     print(root, left, right)
                     _multiply(
@@ -660,7 +786,6 @@ def solve_for2(
                 factored_value = _simplify_factor_target(
                     root, target, solve_action_list
                 )
-
 
                 if multiple_targets_in_values(factored_value.values, target):
                     print(node, factored_value)
@@ -778,7 +903,9 @@ def _print_solve_action_list(solve_action_list: list[SolveActionEntry]):
                     *map(str, solve_action["parameters"]),
                 )
             )
-        elif solve_action["type"] == "simplify":
+        elif (solve_action["type"] == "simplify" and False) or solve_action[
+            "type"
+        ] == "simplify_modify":
 
             if solve_action["node_str"] == solve_action["derrived_values"][0]:
                 continue
@@ -831,11 +958,11 @@ def _test_solve_for2(expr, target, show_solve_action_list: Literal[0, 1, 2] = 0)
 a = Variable.create("a")
 b = Variable.create("b")
 
+_test_solve_for2("10 + a = b * a", a)
+_test_solve_for2("10 + a = b * a", b)
+_test_solve_for2("10 + c * a = b * a", a)
 
-# _test_solve_for2("10 + a = b * a", a)
-# _test_solve_for2("10 + a = b * a", b)
-
-# _test_solve_for2("10 + a = b - a", a)
+_test_solve_for2("10 + a = b - a", a)
 
 # _test_solve_for2("a * b + c * d = a * e + c * f", a)
 
@@ -854,12 +981,38 @@ b = Variable.create("b")
 # TODO: add some of logic when there are an infinite amount of answers
 # _test_solve_for2("a / 2  = a * b", a)
 
-_test_solve_for2("a / 2  = a * b + 1", a)
+# _test_solve_for2("a / 2  = a * b + 1", a)
 
 # print(_simplify_factor_target(build_tree2(parse("a / 2 + -1 * a")), a, []))
 # print(_simplify_factor_target(build_tree2(parse("a / (2 * a) + -1 * a")), a, []))
 
-steps = []
+
+def pb(s: str):
+    return build_tree2(parse(s))
+
+
+# steps = []
+# v = _simplify_division(pb("(2 * c) / ((c / d) * 2)"), steps)
+# _print_solve_action_list(steps)
+
+# print("-" * 40)
+
+
+# for expr in [
+#     "2 * a * 2",  # 4 * a
+#     "1 * a",  # a
+#     "2 * a * b",  # 2 * a * bx
+#     "2 * (a + b)",  # 2 * (a + b)
+#     "2 * (a / b)",  # 2 * (a / b)
+#     "2 * (a / (b * 2))",  # a * (1 / b)
+#     "3 * (a / (b * 2))",  # 3 * a * (1 / (b * 2))
+# ]:
+#     steps = []
+#     v = _simplify_factors(pb(expr), steps)
+#     _print_solve_action_list(steps)
+#     print(v)
+#     print("-" * 40)
+
 # print(_simplify_factor_target(build_tree2(parse("(a + 2) / 2 + -1 * a")), a, steps))
 
 # print(_simplify_factor_target(build_tree2(parse("(a * 2 * b * a) / 2 + -1 * a")), a, steps))
