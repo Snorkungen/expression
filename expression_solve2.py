@@ -180,6 +180,7 @@ def _simplify_factors(
                 continue
             else:
                 integer_idx = i
+                values[integer_idx] = Integer.create(value.token_value)
 
         i += 1
 
@@ -229,6 +230,7 @@ def _simplify_terms(
                 continue
             else:
                 integer_idx = i
+                values[integer_idx] = Integer.create(value.token_value)
 
         i += 1
 
@@ -649,6 +651,15 @@ def _simplify_factor_target(
 
     return factored_value
 
+def _simplify (node: TokenValue, solve_action_list:list[SolveActionEntry]  = []) -> TokenValue:
+    if node.token_type & TT_Add:
+        return _simplify_terms(node, solve_action_list=solve_action_list)
+    if node.token_type & TT_Mult:
+        return _simplify_factors(node, solve_action_list=solve_action_list)
+    if node.token_type & TT_Div:
+        return _simplify_division(node, solve_action_list=solve_action_list)
+    return node
+
 
 def solve_for2(
     node: Operation, target: Variable, solve_action_list: list[SolveActionEntry] = []
@@ -893,6 +904,54 @@ def replace_variables(node: Operation, *values: Tuple[Operation, ...]):
     return node
 
 
+def find_values_that_would_cause_an_undefined_result(
+    node: Operation, bad_values: list[Tuple[Variable, TokenValue]]
+):
+    """
+    The aim with this function is determine values that would cause a undefined result.
+    "a = 10 / b", b != 0
+    "a = 10 / (b - 4)", b != 4
+    """
+
+    # first find nodes where divison occurs
+    nodes = [node]
+    while len(nodes):
+        sub_node = nodes.pop()
+
+        if sub_node.token_type & TT_Operation == 0 and not isinstance(
+            sub_node, Operation
+        ):
+            continue  # ignore none operations in this case
+
+        if len(collect_all_variables(node)) == 0:
+            continue  # ignore if there aren't any variables in tied to the operation
+
+        if sub_node.token_type & TT_Div == 0:
+            nodes.extend(sub_node.values)
+            continue
+
+        # first check if sub_node is a division operation, and contains variables
+
+        # now comes the fun part only bother about the divisor
+
+        sub_node = _simplify_division_flatten(sub_node, [])
+
+        variables = collect_all_variables(sub_node.right)
+        if len(variables) == 0:
+            continue
+
+        for variable in (variables):
+            solved = solve_for2(Operation.create("=", sub_node.right, Integer.create(0)), variable)
+            print(solved)
+            bad_values.append((variable, _simplify(solved.right)))
+
+        if len(variables) > 1:
+            raise NotImplementedError(
+                "handling when there are multiple variables is definetly a challenge",
+                [*map(str, variables)], str(sub_node)
+            )
+
+
 def _print_solve_action_list(solve_action_list: list[SolveActionEntry]):
     for solve_action in solve_action_list:
         if solve_action["type"] == "global":
@@ -952,17 +1011,63 @@ def _test_solve_for2(expr, target, show_solve_action_list: Literal[0, 1, 2] = 0)
     if True and show_solve_action_list == 0:
         _print_solve_action_list(solve_action_list)
 
+    # try to check what values some thing can be to make an equation true
+    bad_values = []
+    find_values_that_would_cause_an_undefined_result(solved, bad_values)
+    print([*map(lambda v: (str(v[0]), str(v[1])), bad_values)])
+
     print("-" * 20)
+
+
+def pb(s: str):
+    return build_tree2(parse(s))
 
 
 a = Variable.create("a")
 b = Variable.create("b")
 
-_test_solve_for2("10 + a = b * a", a)
-_test_solve_for2("10 + a = b * a", b)
-_test_solve_for2("10 + c * a = b * a", a)
+bad_values = []
+find_values_that_would_cause_an_undefined_result(pb("1 / b"), bad_values)
+print([*map(lambda v: (str(v[0]), str(v[1])), bad_values)])
 
-_test_solve_for2("10 + a = b - a", a)
+bad_values = []
+find_values_that_would_cause_an_undefined_result(pb("1 / (b + 3)"), bad_values)
+print([*map(lambda v: (str(v[0]), str(v[1])), bad_values)])
+
+bad_values = []
+find_values_that_would_cause_an_undefined_result(
+    pb("1 / (2 * b + 4)"), bad_values
+)
+print([*map(lambda v: (str(v[0]), str(v[1])), bad_values)])
+
+bad_values = []
+find_values_that_would_cause_an_undefined_result(
+    pb("1 / (2 * (b + 2) + 3)"), bad_values
+)
+print([*map(lambda v: (str(v[0]), str(v[1])), bad_values)])
+
+bad_values = []
+find_values_that_would_cause_an_undefined_result(
+    pb("1 / (2 * (b / 2 + 2) + 3)"), bad_values
+)
+
+print([*map(lambda v: (str(v[0]), str(v[1])), bad_values)])
+bad_values = []
+find_values_that_would_cause_an_undefined_result(
+    pb("1 / (2 * b + 2)"), bad_values
+)
+print([*map(lambda v: (str(v[0]), str(v[1])), bad_values)])
+bad_values = []
+find_values_that_would_cause_an_undefined_result(
+    pb("1 / (2 * b + c + 2)"), bad_values
+)
+print([*map(lambda v: (str(v[0]), str(v[1])), bad_values)])
+
+# _test_solve_for2("10 + a = b * a", a, 2)
+# _test_solve_for2("10 + a = b * a", b)
+# _test_solve_for2("10 + c * a = b * a", a)
+
+# _test_solve_for2("10 + a = b - a", a)
 
 # _test_solve_for2("a * b + c * d = a * e + c * f", a)
 
@@ -985,10 +1090,6 @@ _test_solve_for2("10 + a = b - a", a)
 
 # print(_simplify_factor_target(build_tree2(parse("a / 2 + -1 * a")), a, []))
 # print(_simplify_factor_target(build_tree2(parse("a / (2 * a) + -1 * a")), a, []))
-
-
-def pb(s: str):
-    return build_tree2(parse(s))
 
 
 # steps = []
