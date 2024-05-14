@@ -135,13 +135,16 @@ class Operation(TokenValue):
 
 
 class Function(TokenValue):
-    values: list[TokenValue]
+    values: Tuple[TokenValue]
     token_value: str
 
-    def __init__(self, token: Token) -> None:
-        raise NotImplementedError
+    def __init__(self, token: Token, *values: Tuple[TokenValue, ...]) -> None:
         super().__init__(token)
+        self.values = values
 
+    def __str__(self) -> str:
+        parameters = ', '.join(map(str, self.values))
+        return f"{self.token_value}({parameters})"
 
 def collect_factors(node: Operation, factors: list[TokenValue] = []):
     assert node.token_type & TT_Mult
@@ -310,26 +313,55 @@ def build_tree2(
         i = 0
         while i < len(tokens) and len(tokens) > 0:
             token = tokens[i]
-            if not (token[0] & TT_Operation):  # TODO: remember functions
-                i += 1
-                continue
 
             if token[0] & (test) == 0:
                 i += 1
                 continue
 
-            if i == 0 or i + 1 >= len(tokens):
-                raise ValueError("Cannot get left value or right value")
+            if token[0] & TT_Func:
+                # handle a function consume the tokens
+                if (i + 1) >= len(tokens):
+                    tokens[i] = (
+                        TB_TOKEN_VALUE,
+                        OperValue(token),
+                    )  # A function is not guaranteed to have values
+                    continue
 
-            left = _create_value(tokens[i - 1])
-            right = _create_value(tokens[i + 1])
+                next_token = tokens[i + 1]
+                values: list[TokenValue] = []
 
-            operation = OperValue(token, left, right)
+                if next_token[0] & TT_Tokens:
+                    # loop through values and seperate on commas
+                    begin = 0
+                    j = 0
+                    while j < len(next_token[1]):
+                        t = next_token[1][j]
+                        if t[0] & TT_Comma:
+                            values.append(build_tree2(next_token[1][begin:j], RESERVED_IDENTITIES=RESERVED_IDENTITIES))
+                            begin = j + 1
+                        j += 1
+                    else:
+                        if begin < len(next_token[1]):
+                            values.append(build_tree2(next_token[1][begin:]))
+                else:
+                    values.append(_create_value(next_token))
+                
+                tokens.pop(i + 1)  # remove next_token
+                tokens[i] = (TB_TOKEN_VALUE, OperValue(token, *values))
+                i += 1
+            elif token[0] & TT_Operation:
+                # handle an operation
+                if i == 0 or i + 1 >= len(tokens):
+                    raise ValueError("Cannot get left value or right value")
 
-            tokens[i] = (TB_TOKEN_VALUE, operation)
-            tokens.pop(i + 1)  # pop right value
-            tokens.pop(i - 1)  # pop left value
-            continue
+                left = _create_value(tokens[i - 1])
+                right = _create_value(tokens[i + 1])
+
+                operation = OperValue(token, left, right)
+
+                tokens[i] = (TB_TOKEN_VALUE, operation)
+                tokens.pop(i + 1)  # pop right value
+                tokens.pop(i - 1)  # pop left value
 
     if len(tokens) == 1:
         return _create_value(tokens[0])
@@ -401,17 +433,18 @@ def build_tree2(
                 collect_terms_ordered(node, inplace=True)
             elif node.token_type & TT_Mult:
                 collect_factors_ordered(node, inplace=True)
-            elif isinstance(node, Operation) or isinstance(root, Function):
+            elif isinstance(node, Operation) or isinstance(node, Function):
                 nodes.extend(node.values)
 
     return root
 
 
-parsed = parse("1 + 3 * 2 - 6 + 3 / 4")
-node = build_tree2(parsed)
-assert isinstance(node, Operation)
-# parsed = parse("(1 + 2 + 3 + 4) * (5 * (6 + 7) + (8 + 9)) * 10")
-node = build_tree2(parsed)
-assert isinstance(node, Operation)
+if __name__ == "__main__":
+    parsed = parse("1 + 3 * 2 - 6 + 3 / 4")
+    node = build_tree2(parsed)
+    assert isinstance(node, Operation)
+    # parsed = parse("(1 + 2 + 3 + 4) * (5 * (6 + 7) + (8 + 9)) * 10")
+    node = build_tree2(parsed)
+    assert isinstance(node, Operation)
 
-# TODO: write tests
+    # TODO: write tests
