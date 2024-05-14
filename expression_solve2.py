@@ -691,6 +691,7 @@ def solve_for2(
             # or any similar situation where the only value on the target side is the target variable
 
             # do the same logic as above
+            print("infinite loop", node.values[destin_idx])
             if node.values[destin_idx].token_type & TT_Operation:
                 destin = node.values[destin_idx]
                 assert isinstance(destin, Operation)
@@ -742,11 +743,7 @@ def solve_for2(
                     )
 
                     node.values[destin_idx] = destin.left
-
-                    if is_target_variable_in_tree(node.left, target):
-                        tmp = target_idx
-                        target_idx = destin_idx
-                        destin_idx = tmp
+                    continue
                 else:
                     raise NotImplementedError("operation not handled")
             else:
