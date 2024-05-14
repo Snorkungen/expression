@@ -125,9 +125,7 @@ class Operation(TokenValue):
         )
 
     @staticmethod
-    def create(
-        symbol: str, *values: TokenValue, RESERVED_IDENTITIES=RESERVED_IDENTITIES
-    ):
+    def create(symbol: str, *values: TokenValue):
         if symbol not in RESERVED_IDENTITIES:
             raise ValueError(f"{symbol} not int RESERVED_IDENTITIES")
         token_type = RESERVED_IDENTITIES[symbol]
@@ -143,32 +141,16 @@ class Function(TokenValue):
         self.values = values
 
     def __str__(self) -> str:
-        parameters = ', '.join(map(str, self.values))
+        parameters = ", ".join(map(str, self.values))
         return f"{self.token_value}({parameters})"
 
-def collect_factors(node: Operation, factors: list[TokenValue] = []):
-    assert node.token_type & TT_Mult
-    assert isinstance(node, Operation)
+    @property
+    def name(self) -> str:
+        return self.token_value
 
-    if factors == None:
-        factors = []
-
-    nodes = list(node.values)
-    while len(nodes) > 0:
-        sub_node = nodes.pop()
-
-        if isinstance(sub_node, Operation) and sub_node.token_type & TT_Mult:
-            nodes.extend(sub_node.values)
-            continue
-        elif isinstance(sub_node, Operation) and sub_node.token_type & TT_Div:
-            # TODO: collect division factors
-            # this would require the modification of values
-            # which is not what wanted
-            pass
-
-        factors.append(sub_node)
-
-    return factors
+    @staticmethod
+    def create(name: str, *values: Tuple[TokenValue, ...]):
+        return Function((TT_Ident | TT_Func, name), *values)
 
 
 def collect_factors_ordered(node: Operation, inplace=True):
@@ -205,28 +187,6 @@ def collect_factors_ordered(node: Operation, inplace=True):
     if inplace:
         node.values = values
     return values
-
-
-def collect_terms(node: Operation, terms: list[TokenValue] = []):
-    assert node.token_type & TT_Add
-    assert isinstance(node, Operation)
-
-    if terms == None:
-        terms = []
-
-    # operation: keep the order
-
-    nodes = list(node.values)
-    while len(nodes) > 0:
-        # is there a better more efficient way of removing the first value
-        sub_node = nodes.pop()
-        if isinstance(sub_node, Operation) and sub_node.token_type & TT_Add:
-            nodes.extend(sub_node.values)
-            continue
-
-        terms.append(sub_node)
-
-    return terms
 
 
 def collect_terms_ordered(node: Operation, inplace=True):
@@ -283,29 +243,30 @@ def flatten_terms(node: Operation, inplace=True):
     return Operation((node.token_type, node.token_value), *values)
 
 
-def build_tree2(
-    tokens: Iterable[Token], RESERVED_IDENTITIES=RESERVED_IDENTITIES
-) -> TokenValue:
+def build_tree2(tokens: Iterable[Token]) -> TokenValue:
     tokens = list(tokens)
 
     def _create_value(token: Token) -> TokenValue:
         # zero all info mask bits
         token_type = token[0] ^ (token[0] & TT_INFO_MASK)
 
-        if token_type == (TT_Numeric | TT_Int):
+        if b_nand(token_type, TT_INFO_MASK) == (TT_Numeric | TT_Int):
             return Integer(token)
-        if token_type == (TT_Numeric | TT_Float):
+        if b_nand(token_type, TT_INFO_MASK) == (TT_Numeric | TT_Float):
             return Float(token)
-        if token_type == TT_Ident:
+        if b_nand(token_type, TT_INFO_MASK) == TT_Ident:
             return Variable(token)
-        if token_type == TT_Tokens:
+        if b_nand(token_type, TT_INFO_MASK) == TT_Tokens:
             # TODO: add some kind of note to denote that this thing was surrounded by brackets
-            return build_tree2(token[1], RESERVED_IDENTITIES=RESERVED_IDENTITIES)
-        if token_type == TB_TOKEN_VALUE:
+            return build_tree2(token[1])
+        if b_nand(token_type, TT_INFO_MASK) == TB_TOKEN_VALUE:
             return token[1]
 
+        if b_nand(token_type, TT_INFO_MASK) == (TT_Func | TT_Ident):
+            return Function(token)
+
         print(token)
-        raise ValueError("token not recognised " + token)
+        raise ValueError("token not recognised", str(token))
 
     def _do_operation(
         test: int, OperValue: Callable[[Token, Tuple[TokenValue, ...]], TokenValue]
@@ -337,7 +298,7 @@ def build_tree2(
                     while j < len(next_token[1]):
                         t = next_token[1][j]
                         if t[0] & TT_Comma:
-                            values.append(build_tree2(next_token[1][begin:j], RESERVED_IDENTITIES=RESERVED_IDENTITIES))
+                            values.append(build_tree2(next_token[1][begin:j]))
                             begin = j + 1
                         j += 1
                     else:
@@ -345,7 +306,7 @@ def build_tree2(
                             values.append(build_tree2(next_token[1][begin:]))
                 else:
                     values.append(_create_value(next_token))
-                
+
                 tokens.pop(i + 1)  # remove next_token
                 tokens[i] = (TB_TOKEN_VALUE, OperValue(token, *values))
                 i += 1
@@ -439,12 +400,11 @@ def build_tree2(
     return root
 
 
-if __name__ == "__main__":
-    parsed = parse("1 + 3 * 2 - 6 + 3 / 4")
-    node = build_tree2(parsed)
-    assert isinstance(node, Operation)
-    # parsed = parse("(1 + 2 + 3 + 4) * (5 * (6 + 7) + (8 + 9)) * 10")
-    node = build_tree2(parsed)
-    assert isinstance(node, Operation)
+# parsed = parse("1 + 3 * 2 - 6 + 3 / 4")
+# node = build_tree2(parsed)
+# assert isinstance(node, Operation)
+# # parsed = parse("(1 + 2 + 3 + 4) * (5 * (6 + 7) + (8 + 9)) * 10")
+# node = build_tree2(parsed)
+# assert isinstance(node, Operation)
 
-    # TODO: write tests
+# # TODO: write tests

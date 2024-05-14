@@ -97,13 +97,18 @@ Token = NewType("Token", Tuple[int, Any])
 
 
 def parse(
-    input: str, RESERVED_IDENTITIES=RESERVED_IDENTITIES
+    input: str, additional_identities: dict[str, int] = None
 ) -> Iterable[Tuple[int, Any]]:
     tokens: list[Tuple[int, Any]] = []
     tokens_positions = []
     token_type = 0
     buffer = ""
     i = 0
+
+    if not additional_identities:
+        identities = RESERVED_IDENTITIES
+    else:
+        identities = {**RESERVED_IDENTITIES, **additional_identities}
 
     while i < len(input):
         char = input[i]
@@ -150,7 +155,12 @@ def parse(
                 elif char == brackets[1]:
                     depth -= 1
                     if depth < 0:
-                        tokens.append((TT_Tokens, parse(input[start : i - 1])))
+                        tokens.append(
+                            (
+                                TT_Tokens,
+                                parse(input[start : i - 1], additional_identities),
+                            )
+                        )
                         tokens_positions.append(i)
                         break
         if token_type & TT_Numeric:
@@ -170,9 +180,7 @@ def parse(
 
         if token_type & TT_Ident:
             # first check that the char is not reserved and special
-            if char in RESERVED_IDENTITIES or (
-                char.isnumeric() and not issubscript(char)
-            ):
+            if char in identities or (char.isnumeric() and not issubscript(char)):
                 if buffer:  # prevent adding an empty buffer to tokens
                     tokens.append((token_type, buffer))
                     tokens_positions.append(i)
@@ -184,8 +192,8 @@ def parse(
                 token_type = TT_Int
 
         # final thing in loop check buffer for a reserved identity
-        if buffer in RESERVED_IDENTITIES:
-            tokens.append((RESERVED_IDENTITIES[buffer], buffer))
+        if buffer in identities:
+            tokens.append((identities[buffer], buffer))
             tokens_positions.append(i)
 
             buffer = ""
