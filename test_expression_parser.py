@@ -37,6 +37,15 @@ class ParserTester(unittest.TestCase):
         self.assertTrue(tokens[1][0] & TT_Mult)
         self.assertTrue(tokens[2][0] & TT_Ident)
 
+    def test_implicit_multiplication2(self):
+        ri = {**RESERVED_IDENTITIES, "test": TT_Func | TT_Ident}
+
+        tokens = parse("test5", ri)
+        self.assertEqual(len(tokens), 2)
+
+        tokens = parse("test (5)", ri)
+        self.assertEqual(len(tokens), 2)
+
     def test_brackets(self):
         tokens = parse("(a + 2 (2 * 2))")
         self.assertEqual(tokens[0][0], TT_Tokens)
@@ -54,9 +63,9 @@ class ParserTester(unittest.TestCase):
         identities = {**RESERVED_IDENTITIES, "foo": TT_Func | TT_Ident}
         tokens = parse("fooa", identities)
 
-        self.assertTrue(len(tokens) == 3)
+        self.assertTrue(len(tokens) == 2)
         self.assertTrue(tokens[0][0] == (TT_Func | TT_Ident))
-        self.assertTrue(tokens[1][0] & (TT_Operation))
+        self.assertTrue(tokens[1][0] & (TT_Ident))
 
 
 if __name__ == "__main__":

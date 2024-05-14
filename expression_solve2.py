@@ -2,6 +2,7 @@ from typing import Literal, Optional, TypedDict
 from expression_parser import parse, TT_Equ
 from expression_tree_builder2 import *
 from expression_compare import *
+from utils import *
 
 
 class SolveActionEntry(TypedDict):
@@ -11,11 +12,6 @@ class SolveActionEntry(TypedDict):
 
     parameters: Iterable[Any]
     derrived_values: Iterable[Any]
-
-
-def b_nand(a: int, b: int) -> int:
-    return a ^ (b & a)
-
 
 def is_target_variable_in_tree(node: Operation, target: Variable) -> bool:
     if not isinstance(node, Operation):
