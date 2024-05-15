@@ -1091,6 +1091,7 @@ def solve_for2(
             # or any similar situation where the only value on the target side is the target variable
 
             # do the same logic as above
+
             if node.values[destin_idx].token_type & TT_Operation:
                 destin = node.values[destin_idx]
                 assert isinstance(destin, Operation)
@@ -1130,9 +1131,15 @@ def solve_for2(
                             node, target_idx, value, solve_action_list=solve_action_list
                         )
                         values.pop(i)
-                        node.values[destin_idx] = _construct_token_value_with_values(
-                            node.values[destin_idx], *values
-                        )
+
+                        if len(values) == 0:
+                            node.values[destin_idx] = Integer.create(1)
+                        else:
+                            node.values[destin_idx] = (
+                                _construct_token_value_with_values(
+                                    node.values[destin_idx], *values
+                                )
+                            )
                         _fix_last_entries_derrived_value(node, solve_action_list)
                 elif destin.token_type & TT_Div:
                     values = list(destin.values)
@@ -1170,6 +1177,25 @@ def solve_for2(
 
         if multiple_targets_in_values(root.values, target):
             if root.token_type & TT_Div:
+                # check if the target is locked within something annoying
+                if root.left.token_type & TT_Mult and isinstance(root.left, Operation):
+                    for j, factor in enumerate(root.left.values):
+                        if factor.token_type & TT_Add and is_target_variable_in_tree(
+                            factor, target
+                        ):
+                            node.values[target_idx] = (
+                                _construct_token_value_with_values(
+                                    root,
+                                    _simplify_distribute_factor(
+                                        root.left, j, solve_action_list
+                                    ),
+                                    root.right,
+                                )
+                            )
+                            root = node.values[target_idx]
+                            left = root.left
+                            right = root.right
+
                 if (
                     left.token_type & TT_Add
                     and isinstance(left, Operation)
@@ -1200,6 +1226,7 @@ def solve_for2(
                         tmp = target_idx
                         target_idx = destin_idx
                         destin_idx = tmp
+                    continue
             elif root.token_type & TT_Add:
                 # this is just a hyperspecific action because i'm trying to solve a specific equation
                 # TODO: Recognise patterns where the only solution is some special thing
@@ -1275,9 +1302,12 @@ def solve_for2(
                         node, destin_idx, value, solve_action_list=solve_action_list
                     )
                     values.pop(i)
-                    node.values[target_idx] = _construct_token_value_with_values(
-                        root, *values
-                    )
+                    if len(values) == 0:
+                        node.values[target_idx] = Integer.create(1)
+                    else:
+                        node.values[target_idx] = _construct_token_value_with_values(
+                            root, *values
+                        )
                     _fix_last_entries_derrived_value(node, solve_action_list)
                     continue
 
@@ -1412,7 +1442,7 @@ def _print_solve_action_list(solve_action_list: list[SolveActionEntry]):
                     solve_action["derrived_values"][0],
                 )
             )
-        elif (solve_action["type"] == "simplify" and False) or solve_action[
+        elif (solve_action["type"] == "simplify" and True) or solve_action[
             "type"
         ] == "simplify_modify":
 
@@ -1476,9 +1506,12 @@ def pb(s: str):
 a = Variable.create("a")
 b = Variable.create("b")
 
-# _test_solve_for2("10 + a = b * a", a)
-# _test_solve_for2("10 + a = b * a", b)
-# _test_solve_for2("10 + c * a = b * a", a)
+_test_solve_for2("f = o * (v + a) / a", a)
+_test_solve_for2("5 * (a + 2) = (8 / a) * a", a)
+
+_test_solve_for2("10 + a = b * a", a)
+_test_solve_for2("10 + a = b * a", b)
+_test_solve_for2("10 + c * a = b * a", a)
 
 # _test_solve_for2("10 + a = b - a", a)
 
@@ -1500,7 +1533,7 @@ b = Variable.create("b")
 # _test_solve_for2("a / 2  = a * b", a)
 
 # _test_solve_for2("a / 2  = a * b + 1", a)
-_test_solve_for2("a / 2 + b / a + 3=  0", a)
+# _test_solve_for2("a / 2 + b / a + 3=  0", a)
 
 # _test_solve_for2("a / 2 + b / a=  1", a)
 # print(_simplify_factor_target(pb("(a / 2) + (b / a) + b"), a, [])) # (a * a + b * 2) / (2 * b) + b
