@@ -13,6 +13,7 @@ class SolveActionEntry(TypedDict):
     parameters: Iterable[Any]
     derrived_values: Iterable[Any]
 
+
 def is_target_variable_in_tree(node: Operation, target: Variable) -> bool:
     if not isinstance(node, Operation):
         return compare_variables(node, target)
@@ -66,7 +67,7 @@ def _subtract(
             "node_str": node_str,
             "method_name": _subtract.__name__,
             "parameters": (destin_idx, value),
-            "derrived_values": (str(node)),
+            "derrived_values": (str(node),),
         }
     )
 
@@ -94,7 +95,7 @@ def _multiply(
             "node_str": node_str,
             "method_name": _multiply.__name__,
             "parameters": (destin_idx, value),
-            "derrived_values": (str(node)),
+            "derrived_values": (str(node),),
         }
     )
 
@@ -118,10 +119,21 @@ def _divide(
             "node_str": node_str,
             "method_name": _divide.__name__,
             "parameters": (destin_idx, value),
-            "derrived_values": (str(node)),
+            "derrived_values": (str(node),),
         }
     )
 
+
+def _fix_last_entries_derrived_value(
+    node: Operation,
+    solve_action_list: list[SolveActionEntry],
+):
+    """Solve, slight inconvenience wher the global solve actions do not have access to the step"""
+    assert isinstance(node.values, list)
+    assert len(solve_action_list) > 0
+    assert solve_action_list[-1]["type"] == "global"
+
+    solve_action_list[-1]["derrived_values"] = (str(node), *solve_action_list[-1]["derrived_values"][1:])
 
 def _construct_token_value_with_values(
     source: TokenValue, *values: Tuple[TokenValue, ...]
@@ -168,6 +180,10 @@ def _simplify_factors(
             # An approach where i convert every thing to a fraction and simplify
             # Then pull out the divisor => a / b => a * (1 / b)
             value = _simplify_division(value, solve_action_list)
+
+        if value.token_type & TT_Numeric and value.token_value == 1:
+            values.pop(i)
+            continue
 
         if isinstance(value, Integer):
             if integer_idx >= 0:
@@ -691,7 +707,6 @@ def solve_for2(
             # or any similar situation where the only value on the target side is the target variable
 
             # do the same logic as above
-            print("infinite loop", node.values[destin_idx])
             if node.values[destin_idx].token_type & TT_Operation:
                 destin = node.values[destin_idx]
                 assert isinstance(destin, Operation)
@@ -716,6 +731,8 @@ def solve_for2(
                         node.values[destin_idx] = _construct_token_value_with_values(
                             node.values[destin_idx], *values
                         )
+
+                        _fix_last_entries_derrived_value(node, solve_action_list)
                 elif destin.token_type & TT_Mult:
                     values = list(destin.values)
                     i = 0
@@ -732,6 +749,7 @@ def solve_for2(
                         node.values[destin_idx] = _construct_token_value_with_values(
                             node.values[destin_idx], *values
                         )
+                        _fix_last_entries_derrived_value(node, solve_action_list)
                 elif destin.token_type & TT_Div:
                     values = list(destin.values)
 
@@ -743,6 +761,7 @@ def solve_for2(
                     )
 
                     node.values[destin_idx] = destin.left
+                    _fix_last_entries_derrived_value(node, solve_action_list)
                     continue
                 else:
                     raise NotImplementedError("operation not handled")
@@ -754,6 +773,7 @@ def solve_for2(
                     solve_action_list=solve_action_list,
                 )
                 node.values[destin_idx] = Integer.create(0)
+                _fix_last_entries_derrived_value(node, solve_action_list)
 
         root = node.values[target_idx]
         if not isinstance(root, Operation):
@@ -789,6 +809,8 @@ def solve_for2(
                         solve_action_list=solve_action_list,
                     )
                     node.values[target_idx] = root.left
+                    _fix_last_entries_derrived_value(node, solve_action_list)
+
                     tmp = target_idx
                     target_idx = destin_idx
                     destin_idx = tmp
@@ -821,6 +843,7 @@ def solve_for2(
                     node.values[target_idx] = _construct_token_value_with_values(
                         root, *values
                     )
+                    _fix_last_entries_derrived_value(node, solve_action_list)
                     continue
 
                 i += 1
@@ -838,6 +861,7 @@ def solve_for2(
                     node.values[target_idx] = _construct_token_value_with_values(
                         root, *values
                     )
+                    _fix_last_entries_derrived_value(node, solve_action_list)
                     continue
 
                 i += 1
@@ -845,6 +869,7 @@ def solve_for2(
             # multiply the divisor, if the variable is in the divisor swap target and destin
             _multiply(node, destin_idx, right, solve_action_list=solve_action_list)
             node.values[target_idx] = left
+            _fix_last_entries_derrived_value(node, solve_action_list)
 
             if is_target_variable_in_tree(right, target):
                 tmp = target_idx
@@ -965,7 +990,10 @@ def _print_solve_action_list(solve_action_list: list[SolveActionEntry]):
                 (
                     solve_action["method_name"],
                     solve_action["node_str"],
-                    *map(str, solve_action["parameters"]),
+                    # *map(str, solve_action["parameters"]),
+                    str(solve_action["parameters"][1]),
+                    "=>",
+                    solve_action["derrived_values"][0],
                 )
             )
         elif (solve_action["type"] == "simplify" and True) or solve_action[
@@ -1032,7 +1060,7 @@ def pb(s: str):
 a = Variable.create("a")
 b = Variable.create("b")
 
-_test_solve_for2("10 + a = b * a", a, 2)
+_test_solve_for2("10 + a = b * a", a)
 _test_solve_for2("10 + a = b * a", b)
 _test_solve_for2("10 + c * a = b * a", a)
 
