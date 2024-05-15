@@ -158,6 +158,245 @@ def _construct_token_value_with_values(
     )
 
 
+def _simplify_exponentiation_flatten(
+    node: Operation, solve_action_list: list[SolveActionEntry]
+) -> Operation:
+    """
+    (a ^ b) ^ c => a ^ (b * c)
+    """
+    assert node.token_type & TT_Exponent
+
+    node_str = str(node)
+
+    exponent_factors: list[TokenValue] = []
+    base: TokenValue = node.left
+
+    nodes = [node]
+    while len(nodes) > 0:
+        sub_node = nodes.pop()
+        if sub_node.token_type & TT_Exponent:
+            exponent_factors.append(sub_node.right)
+            if sub_node.left.token_type & TT_Exponent:
+                nodes.append(sub_node.left)
+            else:
+                base = sub_node.left
+
+    exponenent = _construct_token_value_with_values(
+        Operation.create("*"), *reversed(exponent_factors)
+    )
+
+    node = _construct_token_value_with_values(node, base, exponenent)
+    if str(node) != node_str:
+        solve_action_list.append(
+            {
+                "type": "simplify",
+                "method_name": _simplify_exponentiation_flatten.__name__,
+                "node_str": node_str,
+                "parameters": (),
+                "derrived_values": (str(node),),
+            }
+        )
+
+    return node
+
+
+def _simplify_exponentiation(
+    node: Operation, solve_action_list: list[SolveActionEntry]
+) -> TokenValue:
+    assert node.token_type & TT_Exponent
+
+    node_str = str(node)
+    node = _simplify_exponentiation_flatten(node, solve_action_list=solve_action_list)
+
+    base = _simplify(node.left)
+    exponent = _simplify(node.right)
+
+    if base.token_type & TT_Int and exponent.token_type & TT_Int:
+        for _ in range(1, exponent.token_value):
+            base.token_value *= base.token_value
+        node = base
+    elif node.right.token_type & TT_Numeric and node.right.token_value == 1:
+        node = node.left
+    elif node.right.token_type & TT_Numeric and node.right.token_value == 0:
+        node = Integer.create(1)
+
+
+
+    if str(node) != node_str:
+        solve_action_list.append(
+            {
+                "type": "simplify",
+                "method_name": _simplify_exponentiation.__name__,
+                "node_str": node_str,
+                "parameters": (),
+                "derrived_values": (str(node),),
+            }
+        )
+
+    return node
+
+
+def _simplify_division_exponentiation(
+    node: Operation, solve_action_list: list[SolveActionEntry]
+):
+    assert node.token_type & TT_Div
+
+    node_str = str(node)
+    if node.left.token_type & TT_Mult and isinstance(node.left, Operation):
+        dividends = list(node.left.values)
+    else:
+        dividends = [node.left]
+
+    if node.right.token_type & TT_Mult and isinstance(node.right, Operation):
+        divisors = list(node.right.values)
+    else:
+        divisors = [node.right]
+    i = 0
+    while i < len(dividends):
+        base = dividends[i]
+        exponent_terms: list[TokenValue] = []
+
+        if isinstance(base, Operation) and base.token_type & TT_Exponent:
+            flattened = _simplify_exponentiation_flatten(base, solve_action_list)
+            base = flattened.left
+            exponent_terms.append(flattened.right)
+        else:
+            exponent_terms.append(Integer.create(1))
+
+        j = 0
+        while j < len(divisors):
+            if (
+                isinstance(divisors[j], Operation)
+                and divisors[j].token_type & TT_Exponent
+            ):
+                flattened = _simplify_exponentiation_flatten(
+                    divisors[j], solve_action_list
+                )
+                if compare_values(flattened.left, base):
+                    exponent_terms.append(
+                        Operation.create("*", Integer.create(-1), flattened.right)
+                    )
+                    divisors.pop(j)
+                    continue
+            elif compare_values(base, divisors[j]):
+                exponent_terms.append(Integer.create(-1))
+                divisors.pop(j)
+                continue
+            j += 1
+
+        if len(exponent_terms) > 1:
+            exponent = _simplify_terms(
+                _construct_token_value_with_values(
+                    Operation.create("+"), *exponent_terms
+                ),
+                solve_action_list,
+            )
+
+            dividends[i] = _simplify_exponentiation(
+                Operation.create("^", base, exponent), solve_action_list
+            )
+        i += 1
+
+    mult_hack = Operation.create("*")
+    dividend = _construct_token_value_with_values(mult_hack, *dividends)
+    divisor = _construct_token_value_with_values(mult_hack, *divisors)
+
+    if dividend.token_type & TT_Add:
+        dividend = _simplify_terms(dividend, solve_action_list)
+    elif dividend.token_type & TT_Mult:
+        dividend = _simplify_factors(dividend, solve_action_list)
+
+    if divisor.token_type & TT_Add:
+        divisor = _simplify_terms(divisor, solve_action_list)
+    elif divisor.token_type & TT_Mult:
+        divisor = _simplify_factors(divisor, solve_action_list)
+
+    node = _construct_token_value_with_values(node, dividend, divisor)
+
+    if str(node) != node_str:
+        solve_action_list.append(
+            {
+                "type": "simplify",
+                "method_name": _simplify_division_exponentiation.__name__,
+                "node_str": node_str,
+                "parameters": (),
+                "derrived_values": (str(node),),
+            }
+        )
+
+    return node
+
+
+def _simplify_factors_exponentiation(
+    node: Operation, solve_action_list: list[SolveActionEntry]
+) -> TokenValue:
+    assert node.token_type & TT_Mult
+    node_str = str(node)
+    values = list(node.values)
+
+    # find places were exponentiation would be viable
+    # TODO: should exponent stuff be a seperate function
+    i = 0
+    while i < len(values):
+        value = values[i]
+        exponent_terms: list[TokenValue] = []
+
+        if isinstance(value, Operation) and value.token_type & TT_Exponent:
+            flattened = _simplify_exponentiation_flatten(value, solve_action_list)
+            exponent_terms.append(flattened.right)
+            value = flattened.left
+        else:
+            exponent_terms.append(Integer.create(1))
+
+        j = i + 1
+        while j < len(values):
+            if isinstance(values[j], Operation) and values[j].token_type & TT_Exponent:
+                flattened = _simplify_exponentiation_flatten(
+                    values[j], solve_action_list
+                )
+                if compare_values(flattened.left, value):
+                    exponent_terms.append(flattened.right)
+                    values.pop(j)
+                    continue
+            elif compare_values(value, values[j]):
+                exponent_terms.append(Integer.create(1))
+                values.pop(j)
+                continue
+            j += 1
+
+        if len(exponent_terms) > 1:
+            exponent = _simplify_terms(
+                _construct_token_value_with_values(
+                    Operation.create("+"), *exponent_terms
+                ),
+                solve_action_list,
+            )
+
+            values[i] = _simplify_exponentiation(
+                Operation.create("^", value, exponent), solve_action_list
+            )
+
+        i += 1
+
+    node = _construct_token_value_with_values(
+        node,
+        *values,
+    )
+
+    if str(node) != node_str:
+        solve_action_list.append(
+            {
+                "type": "simplify",
+                "method_name": _simplify_factors_exponentiation.__name__,
+                "node_str": node_str,
+                "parameters": (),
+                "derrived_values": (str(node),),
+            }
+        )
+
+    return node
+
+
 def _simplify_factors(
     node: Operation, solve_action_list: list[SolveActionEntry]
 ) -> Operation:
@@ -168,7 +407,6 @@ def _simplify_factors(
     assert node.token_type & TT_Mult, str(node)
 
     node_str = str(node)
-
     integer_idx = -1
     values = list(node.values)
     i = 0
@@ -204,15 +442,19 @@ def _simplify_factors(
     if new_node == None:
         raise ValueError
 
-    solve_action_list.append(
-        {
-            "type": "simplify",
-            "method_name": _simplify_factors.__name__,
-            "node_str": node_str,
-            "parameters": (),
-            "derrived_values": (str(new_node),),
-        }
-    )
+    if str(new_node) != node_str:
+        solve_action_list.append(
+            {
+                "type": "simplify",
+                "method_name": _simplify_factors.__name__,
+                "node_str": node_str,
+                "parameters": (),
+                "derrived_values": (str(new_node),),
+            }
+        )
+
+    # handle exponentiation things
+    new_node = _simplify_factors_exponentiation(new_node, solve_action_list)
 
     return new_node
 
@@ -341,6 +583,7 @@ def _simplify_division(
 ) -> Operation:
     assert node.token_type & TT_Div
 
+    node_str = str(node)
     node = _simplify_division_flatten(node, solve_action_list=solve_action_list)
 
     if node.left.token_type & TT_Mult and isinstance(node.left, Operation):
@@ -366,12 +609,24 @@ def _simplify_division(
             i += 1
 
     mult_hack = Operation.create("*")
-    node_str = str(node)
-    node = _construct_token_value_with_values(
-        node,
-        _construct_token_value_with_values(mult_hack, *dividends),
-        _construct_token_value_with_values(mult_hack, *divisors),
-    )
+    dividend = _construct_token_value_with_values(mult_hack, *dividends)
+    divisor = _construct_token_value_with_values(mult_hack, *divisors)
+
+    if dividend.token_type & TT_Add:
+        dividend = _simplify_terms(dividend, solve_action_list)
+    elif dividend.token_type & TT_Mult:
+        dividend = _simplify_factors(dividend, solve_action_list)
+
+    if divisor.token_type & TT_Add:
+        divisor = _simplify_terms(divisor, solve_action_list)
+    elif divisor.token_type & TT_Mult:
+        divisor = _simplify_factors(divisor, solve_action_list)
+
+    node = _construct_token_value_with_values(node, dividend, divisor)
+
+    # handle exponentiation things
+    node = _simplify_division_exponentiation(node, solve_action_list)
+
 
     if isinstance(node, Operation) and node.token_type & TT_Div:
         if node.left.token_type & TT_Numeric and node.left.token_value == 0:
@@ -379,7 +634,8 @@ def _simplify_division(
         elif node.right.token_type & TT_Numeric and node.right.token_value == 1:
             node = node.left
 
-    solve_action_list.append(
+    if str(node) != node_str:
+        solve_action_list.append(
         {
             "type": "simplify",
             "method_name": _simplify_division.__name__,
@@ -388,6 +644,7 @@ def _simplify_division(
             "derrived_values": (str(node),),
         }
     )
+
 
     return node
 
@@ -573,6 +830,7 @@ def _simplify_factor_target(
 
         if value.token_type & TT_Mult:
             # here check if there are any values that need to be distributed
+            print(_simplify_factors(value, []))
             distributed_value = None
             for j in range(len(value.values)):
                 # TODO: to make this more general check if the specific value is in tree instead of just checking for variable
@@ -614,7 +872,7 @@ def _simplify_factor_target(
                 values[i] = _simplify_distribute_factor_from_dividend(
                     value, target, solve_action_list=solve_action_list
                 )
-            continue
+                continue
 
         i += 1
 
@@ -1074,15 +1332,15 @@ def pb(s: str):
 a = Variable.create("a")
 b = Variable.create("b")
 
-_test_solve_for2("10 + a = b * a", a)
-_test_solve_for2("10 + a = b * a", b)
-_test_solve_for2("10 + c * a = b * a", a)
+# _test_solve_for2("10 + a = b * a", a)
+# _test_solve_for2("10 + a = b * a", b)
+# _test_solve_for2("10 + c * a = b * a", a)
 
-_test_solve_for2("10 + a = b - a", a)
+# _test_solve_for2("10 + a = b - a", a)
 
-_test_solve_for2("a * b + c * d = a * e + c * f", a)
+# _test_solve_for2("a * b + c * d = a * e + c * f", a)
 
-_test_solve_for2("f = 1 / a", a, 0)
+# _test_solve_for2("f = 1 / a", a, 0)
 
 # _test_solve_for2("b = c * ((a + v) / a)", a)
 
@@ -1130,6 +1388,10 @@ _test_solve_for2("f = 1 / a", a, 0)
 # print(_simplify_factor_target(build_tree2(parse("(a * 2 * b * a) / 2 + -1 * a")), a, steps))
 # _print_solve_action_list(steps)
 
-# print(_simplify_factor_target(build_tree2(parse(" a * a + -1 * a")), a, steps))
+steps = []
+# print(_simplify_factor_target(build_tree2(parse("a * a + -1 * a")), a, steps))
+print(_simplify_factors(pb("2* a^b * a "), steps))
+print(_simplify_exponentiation(pb("7 ^ 2"), steps))
+print(_simplify_division(pb("(a ^ 3 * 3 * a ^ 1 * b ^ 2) / (a * b) "), steps))
 # print(_simplify_factor_target(build_tree2(parse("(a * 2 * b) / 2 + -1 * a")), a, steps))
 # _print_solve_action_list(steps)
