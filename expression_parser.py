@@ -241,27 +241,6 @@ def parse(
             tokens_positions.insert(i, -1)
             continue
 
-        if token[0] & TT_Operation and next_token[0] & TT_Operation:
-            if token[0] & TT_Add and next_token[0] & TT_Add:
-                # TODO: Emit a warning
-                tokens.pop(i)
-                tokens_positions.pop(i)
-            elif token[0] & TT_Add and next_token[0] & TT_Sub:
-                tokens.pop(i)
-                tokens_positions.pop(i)
-
-                tokens[i] = next_token
-            elif token[0] & TT_Sub and next_token[0] & TT_Add:
-                tokens.pop(i)
-                tokens_positions.pop(i)
-
-                tokens[i] = token
-            elif token[0] & TT_Sub and next_token[0] & TT_Sub:
-                tokens.pop(i)
-                tokens_positions.pop(i)
-
-                tokens[i] = RESERVED_IDENTITIES["+"]
-
         if token[0] & TT_Operation and i == 0:
             if token[0] & (TT_Add | TT_Sub) == 0:
                 # TODO: Emit a warning
@@ -288,6 +267,49 @@ def parse(
             else:
                 # TODO: emit a
                 pass
+
+        if token[0] & TT_Operation and next_token[0] & TT_Operation:
+            if next_token[0] & (TT_Add | TT_Sub) == 0:
+                # TODO: emit an error or warning
+                i += 1
+                continue
+
+            # see if there is a token after the next token
+            if len(tokens) < i + 2:
+                # TODO: this is most definitively an error
+                break
+
+            if tokens[i + 2][0] & TT_Numeric and next_token[0] & TT_Sub:
+
+                tokens[i + 2] = (
+                    (b_nand(tokens[i + 2][0], TT_INFO_MASK)) | TT_Numeric_Negative,
+                    next_token[1] + tokens[i + 2][1],
+                )
+
+                tokens.pop(i + 1)
+                tokens_positions.pop(i + 1)
+                continue
+
+        if token[0] & TT_Operation and next_token[0] & TT_Operation:
+            if token[0] & TT_Add and next_token[0] & TT_Add:
+                # TODO: Emit a warning
+                tokens.pop(i)
+                tokens_positions.pop(i)
+            elif token[0] & TT_Add and next_token[0] & TT_Sub:
+                tokens.pop(i)
+                tokens_positions.pop(i)
+
+                tokens[i] = next_token
+            elif token[0] & TT_Sub and next_token[0] & TT_Add:
+                tokens.pop(i)
+                tokens_positions.pop(i)
+
+                tokens[i] = token
+            elif token[0] & TT_Sub and next_token[0] & TT_Sub:
+                tokens.pop(i)
+                tokens_positions.pop(i)
+
+                tokens[i] = RESERVED_IDENTITIES["+"]
 
         i += 1
 
