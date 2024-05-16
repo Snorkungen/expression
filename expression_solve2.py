@@ -49,6 +49,56 @@ def multiple_targets_in_values(values: Iterable, target: Variable) -> bool:
     return False
 
 
+def targets_share_exponent(node: Operation, target: Variable):
+    assert node.token_type & TT_Add
+
+    def _collect_exponents(sub_node: Operation) -> Iterable[TokenValue]:
+        if not is_target_variable_in_tree(sub_node, target):
+            return tuple()
+
+        if b_nand(sub_node.token_type, TT_INFO_MASK) == TT_Ident:
+            return (Integer.create(1),)
+
+        assert isinstance(sub_node, Operation)
+
+        sub_node = _simplify(sub_node)
+
+        if sub_node.token_type & TT_Exponent:
+            # flattened by _simplify call
+            if compare_values(sub_node.left, target):
+                return (sub_node.right,)
+
+            if is_target_variable_in_tree(sub_node.right, target):
+                raise NotImplementedError("target in the exponent oh no")
+
+            sub_node = _simplify_distribute_exponentiation(sub_node, -1, [])
+        exponents: list[TokenValue] = []
+
+        # does the operation matter
+
+        for value in sub_node.values:
+            exponents.extend(_collect_exponents(value))
+
+        return exponents
+
+    exponents = list(_collect_exponents(node))
+    print(node, [*map(str, exponents)])
+    if len(exponents) <= 1:
+        return True
+
+    i = 0
+    while i < len(exponents) - 1:
+        exponent = exponents[i]
+        j = i + 1
+        while j < len(exponents):
+            if not compare_values(exponent, exponents[j]):
+                return False
+            j += 1
+
+        i += 1
+    return True
+
+
 def _subtract(
     node: Operation,
     destin_idx: int,
@@ -215,8 +265,8 @@ def _simplify_exponentiation(
     node_str = str(node)
     node = _simplify_exponentiation_flatten(node, solve_action_list=solve_action_list)
 
-    base = _simplify(node.left)
-    exponent = _simplify(node.right)
+    base = _simplify(node.left, solve_action_list)
+    exponent = _simplify(node.right, solve_action_list)
 
     if base.token_type & TT_Int and exponent.token_type & TT_Int:
         for _ in range(1, exponent.token_value):
@@ -226,6 +276,8 @@ def _simplify_exponentiation(
         node = node.left
     elif node.right.token_type & TT_Numeric and node.right.token_value == 0:
         node = Integer.create(1)
+
+    node = _construct_token_value_with_values(node, base, exponent)
 
     if str(node) != node_str:
         solve_action_list.append(
@@ -239,6 +291,51 @@ def _simplify_exponentiation(
         )
 
     return node
+
+
+def _simplify_distribute_exponentiation(
+    node: Operation, idx: int, solve_action_list: list[SolveActionEntry]
+):
+    assert node.token_type & TT_Exponent
+
+    exponent = node.right
+    left = node.left
+
+    if left.token_type & TT_Operation == 0:
+        return node
+    node_str = str(node)
+    assert isinstance(left, Operation)
+
+    if idx >= 0 and left.token_type & TT_Operation_Commutative:
+        values = (
+            _construct_token_value_with_values(
+                left, *filter(lambda v: v != left.values[idx], left.values)
+            ),
+            left.values[idx],
+        )
+    else:
+        values = left.values
+
+    values = map(
+        lambda v: _simplify_exponentiation(
+            _construct_token_value_with_values(node, v, exponent), solve_action_list
+        ),
+        values,
+    )
+
+    distributed_value = _construct_token_value_with_values(left, *values)
+
+    solve_action_list.append(
+        {
+            "type": "simplify_modify",
+            "method_name": _simplify_distribute_exponentiation.__name__,
+            "node_str": str(node_str),
+            "parameters": (idx,),
+            "derrived_values": (str(distributed_value),),
+        }
+    )
+
+    return distributed_value
 
 
 def _simplify_division_exponentiation(
@@ -694,6 +791,7 @@ def _simplify_distribute_factor(
         )
 
         return distributed_value
+    print(value)
     raise NotImplementedError("simplifying is not implemented for this operation")
 
     # get the values which are not the thing of interest
@@ -935,6 +1033,10 @@ def _simplify_factor_target(
             continue  # ignore not interested right now and as mentioned functions do not exist
 
         if value.token_type & TT_Mult:
+            if multiple_targets_in_values(value.values, target):
+                values[i] = _simplify_factors_exponentiation(value, solve_action_list)
+                value = values[i]
+
             # here check if there are any values that need to be distributed
             distributed_value = None
             for j in range(len(value.values)):
@@ -1046,6 +1148,8 @@ def _simplify(
         return _simplify_factors(node, solve_action_list=solve_action_list)
     if node.token_type & TT_Div:
         return _simplify_division(node, solve_action_list=solve_action_list)
+    if node.token_type & TT_Exponent:
+        return _simplify_exponentiation(node, solve_action_list=solve_action_list)
     return node
 
 
@@ -1228,18 +1332,16 @@ def solve_for2(
                         destin_idx = tmp
                     continue
             elif root.token_type & TT_Add:
-                # this is just a hyperspecific action because i'm trying to solve a specific equation
-                # TODO: Recognise patterns where the only solution is some special thing
-                # a^2 + a + b = 0
-
-                # this what i knew i'm doing too much
-                # TODO: find out if destination evaluates to zero
-
                 if is_destination_zero():
                     # What now
                     # NOTE: the following will expect a multiplication to occur following this step
                     pass
 
+                if not targets_share_exponent(root, target):
+                    print(
+                        "Action unknown, quittin loop, terms with differing exponents"
+                    )
+                    break
                 value_set = False
                 for v in root.values:
                     if (
@@ -1266,8 +1368,10 @@ def solve_for2(
                     multiple_targets_in_values(factored_value.values, target)
                     and factored_value.token_type & TT_Div == 0
                 ):
-                    # print(node, factored_value)
-                    raise NotImplementedError
+                    raise NotImplementedError(
+                        "there are multiple targets in factored value",
+                        str(factored_value),
+                    )
 
                 node.values[target_idx] = factored_value
             else:
@@ -1506,25 +1610,9 @@ def pb(s: str):
 a = Variable.create("a")
 b = Variable.create("b")
 
-_test_solve_for2("f = o * (v + a) / a", a)
-_test_solve_for2("5 * (a + 2) = (8 / a) * a", a)
-
-_test_solve_for2("10 + a = b * a", a)
-_test_solve_for2("10 + a = b * a", b)
-_test_solve_for2("10 + c * a = b * a", a)
-
-# _test_solve_for2("10 + a = b - a", a)
-
+# _test_solve_for2("f = o * (v + a) / a", a)
+# _test_solve_for2("5 * (a + 2) = (8 / a) * a", a)
 # _test_solve_for2("a * b + c * d = a * e + c * f", a)
-
-# _test_solve_for2("f = 1 / a", a, 0)
-
-# _test_solve_for2("b = c * ((a + v) / a)", a)
-
-# _test_solve_for2("a = v / (b / c + -1)", b)
-
-# _test_solve_for2("b = (a + 1) / (a + 3)", a)
-
 # _test_solve_for2("a = (a + b) /  3",a)
 
 # TODO: add some form of logic that checks that the input fraction is valid
@@ -1532,47 +1620,15 @@ _test_solve_for2("10 + c * a = b * a", a)
 # TODO: add some of logic when there are an infinite amount of answers
 # _test_solve_for2("a / 2  = a * b", a)
 
-# _test_solve_for2("a / 2  = a * b + 1", a)
-# _test_solve_for2("a / 2 + b / a + 3=  0", a)
+# _test_solve_for2("a / 2 + b / a =  1", a)
+# _test_solve_for2("(a ^ 2) ^ 2 + a =  1", a)
+# _test_solve_for2("a / 2 + b / a + 3 =  0", a)
 
-# _test_solve_for2("a / 2 + b / a=  1", a)
 # print(_simplify_factor_target(pb("(a / 2) + (b / a) + b"), a, [])) # (a * a + b * 2) / (2 * b) + b
 
-# print(_simplify_factor_target(build_tree2(parse("a / 2 + -1 * a")), a, []))
-# print(_simplify_factor_target(build_tree2(parse("a / (2 * a) + -1 * a")), a, []))
+print(targets_share_exponent(pb("(a^ 1)^1 + a"), a))
+print(targets_share_exponent(pb("(a^ 2)^1 + a"), a))
+print(targets_share_exponent(pb("((a ^ (1 / 2) + c) ^ 2 + b)^1 + a"), a))
 
-
-# steps = []
-# v = _simplify_division(pb("(2 * c) / ((c / d) * 2)"), steps)
-# _print_solve_action_list(steps)
-
-# print("-" * 40)
-
-
-# for expr in [
-#     "2 * a * 2",  # 4 * a
-#     "1 * a",  # a
-#     "2 * a * b",  # 2 * a * bx
-#     "2 * (a + b)",  # 2 * (a + b)
-#     "2 * (a / b)",  # 2 * (a / b)
-#     "2 * (a / (b * 2))",  # a * (1 / b)
-#     "3 * (a / (b * 2))",  # 3 * a * (1 / (b * 2))
-# ]:
-#     steps = []
-#     v = _simplify_factors(pb(expr), steps)
-#     _print_solve_action_list(steps)
-#     print(v)
-#     print("-" * 40)
-
-# print(_simplify_factor_target(build_tree2(parse("(a + 2) / 2 + -1 * a")), a, steps))
-
-# print(_simplify_factor_target(build_tree2(parse("(a * 2 * b * a) / 2 + -1 * a")), a, steps))
-# _print_solve_action_list(steps)
-
-steps = []
-# print(_simplify_factor_target(build_tree2(parse("a * a + -1 * a")), a, steps))
-# print(_simplify_factors(pb("2* a^b * a "), steps))
-# print(_simplify_exponentiation(pb("7 ^ 2"), steps))
-# print(_simplify_division(pb("(a ^ 3 * 3 * a ^ 1 * b ^ 2) / (a * b) "), steps))
-# print(_simplify_factor_target(build_tree2(parse("(a * 2 * b) / 2 + -1 * a")), a, steps))
-# _print_solve_action_list(steps)
+# TODO: impove compare values
+# ['(1 / 2) * 2', '1'] => 2 / 2 == 1
