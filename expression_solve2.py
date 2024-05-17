@@ -13,6 +13,52 @@ class SolveActionEntry(TypedDict):
     derrived_values: Iterable[Any]
 
 
+def _gather_terms(node: TokenValue) -> Iterable[TokenValue]:
+    if node.token_type & TT_Operation == 0:
+        return (node,)
+
+    assert isinstance(node, Operation)
+
+    if node.token_type & TT_Mult:
+        # loop igenom and see if there are any terms that need distribution
+
+        i = 0
+        node.values = list(node.values)
+        while i < (len(node.values)):
+            if node.values[i].token_type & TT_Add:
+                terms = _simplify_distribute_factor(node, i, [], simplify_terms=False)
+                return _gather_terms(terms)
+
+            if node.values[i].token_type & TT_Div:
+                # rip out the dividend
+                node.values.insert(i + 1, node.values[i].left)
+                node.values[i] = _construct_token_value_with_values(
+                    node.values[i], Integer.create(1), node.values[i].right
+                )
+
+            i += 1
+    elif node.token_type & TT_Exponent and not (
+        node.left.token_type & TT_Numeric
+        or b_nand(node.left.token_type, TT_INFO_MASK) == TT_Ident
+    ):
+        return _gather_terms(_simplify_distribute_exponentiation(node, -1, []))
+
+    # NOTE: unclear how this handles 2 * (1 + 2* (3 + a))
+
+    if node.token_type & TT_Add:
+        values = []
+
+        for v in node.values:
+            values.extend(_gather_terms(v))
+
+        return values
+    if node.token_type & TT_Mult:
+        return (node,)
+    if node.token_type & TT_Exponent:
+        return (node,)
+    raise NotImplementedError("This is not expected", str(node))
+
+
 def compare_values(a: TokenValue, b: TokenValue):
     """compares if two values are the equal
     DO NOT TOUCH RECURSIVE MESS
@@ -107,38 +153,6 @@ def compare_values(a: TokenValue, b: TokenValue):
     a = coerce_into_fraction(a)
     b = coerce_into_fraction(b)
 
-    def _gather_terms(node: TokenValue) -> Iterable[TokenValue]:
-        if node.token_type & TT_Operation == 0:
-            return (node,)
-
-        assert isinstance(node, Operation)
-
-        if node.token_type & TT_Mult:
-            # loop igenom and see if there are any terms that need distribution
-
-            for i in range((len(node.values))):
-                if node.values[i].token_type & TT_Add == 0:
-                    i += 1
-                    continue
-
-                terms = _simplify_distribute_factor(node, i, [], simplify_terms=False)
-                return _gather_terms(terms)
-        elif node.token_type & TT_Exponent and not (
-            node.left.token_type & TT_Numeric
-            or b_nand(node.left.token_type, TT_INFO_MASK) == TT_Ident
-        ):
-            return _gather_terms(_simplify_distribute_exponentiation(node, -1, []))
-
-        # NOTE: unclear how this handles 2 * (1 + 2* (3 + a))
-
-        if node.token_type & TT_Add:
-            return node.values
-        if node.token_type & TT_Mult:
-            return (node,)
-        if node.token_type & TT_Exponent:
-            return (node,)
-        raise NotImplementedError("This is not expected", str(node))
-
     a = Operation.create(
         "/",
         _construct_token_value_with_values(
@@ -172,6 +186,14 @@ def compare_values(a: TokenValue, b: TokenValue):
         b_temp = _simplify_distribute_factor(b_temp, 0, [], simplify_terms=False)
 
     b_terms = _gather_terms(b_temp)
+
+
+    # this is dumb.
+    a_temp = coerce_into_fraction(_construct_token_value_with_values(Operation.create("+"), *a_terms))
+    b_temp = coerce_into_fraction(_construct_token_value_with_values(Operation.create("+"), *b_terms))
+
+    a_terms = _gather_terms(Operation.create("*", a_temp.left, b_temp.right))
+    b_terms = _gather_terms(Operation.create("*", b_temp.left, a_temp.right))
 
     # create a inventory for terms
     # integer_sum
@@ -1814,6 +1836,19 @@ def find_values_that_would_cause_an_undefined_result(
                 bad_values.append((variable, _simplify(solved.right)))
 
 
+def evaluate_solution(source: Operation, solved: Operation):
+    assert source.token_type & TT_Equ
+    assert solved.token_type & TT_Equ
+
+    assert isinstance(solved.left, Variable)
+
+    replaced_source = replace_variables(source, solved)
+
+    print(replaced_source)
+    print(compare_values(replaced_source.left, replaced_source.right))
+    pass
+
+
 def _print_solve_action_list(solve_action_list: list[SolveActionEntry]):
     for solve_action in solve_action_list:
         if solve_action["type"] == "global":
@@ -1892,24 +1927,24 @@ if __name__ == "__main__":
     a = Variable.create("a")
     b = Variable.create("b")
 
-    _test_solve_for2("5 * (a + 2) = (8 / a) * a", a)
-    _test_solve_for2("u / a = a / 2", a)
-    _test_solve_for2("u / a + 1= a / 2 + 4", a)
-    _test_solve_for2("u / (a + 4) = a / 2",a)
+    # _test_solve_for2("5 * (a + 2) = (8 / a) * a", a)
+    # _test_solve_for2("u / a = a / 2", a)
+    # _test_solve_for2("u / a + 1= a / 2 + 4", a)
+    # _test_solve_for2("u / (a + 4) = a / 2", a)
 
-    _test_solve_for2("f = o * (v + a) / a", a)
-    _test_solve_for2("5 * (a + 2) = (8 / a) * a", a)
-    _test_solve_for2("a * b + c * d = a * e + c * f", a)
-    _test_solve_for2("a = (a + b) /  3",a)
+    # _test_solve_for2("f = o * (v + a) / a", a)
+    # _test_solve_for2("5 * (a + 2) = (8 / a) * a", a)
+    # _test_solve_for2("a * b + c * d = a * e + c * f", a)
+    # _test_solve_for2("a = (a + b) /  3", a)
 
-    # TODO: add some form of logic that checks that the input fraction is valid
-    _test_solve_for2("a / 2  = a", a)
-    # TODO: add some of logic when there are an infinite amount of answers
-    _test_solve_for2("a / 2  = a * b", a)
+    # # TODO: add some form of logic that checks that the input fraction is valid
+    # _test_solve_for2("a / 2  = a", a)
+    # # TODO: add some of logic when there are an infinite amount of answers
+    # _test_solve_for2("a / 2  = a * b", a)
 
-    _test_solve_for2("a / 2 + b / a =  1", a)
-    _test_solve_for2("(a ^ 2) ^ 2 + a =  1", a)
-    _test_solve_for2("a / 2 + b / a + 3 =  0", a)
+    # _test_solve_for2("a / 2 + b / a =  1", a)
+    # _test_solve_for2("(a ^ 2) ^ 2 + a =  1", a)
+    # _test_solve_for2("a / 2 + b / a + 3 =  0", a)
 
     # print(
     #     _simplify_factor_target(pb("(a / 2) + (b / a) + b"), a, [])
@@ -1919,19 +1954,21 @@ if __name__ == "__main__":
     # print(targets_share_exponent(pb("(a^ 2)^1 + a ^ (1 + 1 / 2 + 1/2)"), a))
     # print(targets_share_exponent(pb("((a ^ (1 / 2) + c) ^ 2 + b)^1 + a"), a))
 
-    # for a, b in (
-    #     ("a", "b"),
-    #     ("1", "2 + 2"),
-    #     ("a", "a * 2  / 2"),
-    #     ("2", "2.0"),
-    #     ("2 + 1 / 2", "2  + 2 / 4"),
-    #     ("1", "1 / 2 + 2 / 4"),
-    #     ("2", "1 + 1 / 2 + 1 / 2"),
-    #     ("(1 / 2) * 2", "1"),
-    #     ("1 + 1 / 1", "2"),
-    #     ("2 / 2 * (2 + a)", "2 + a"),
-    #     ("2 * a", "4 * a / 2"),
-    #     ("2 * a * b", "4 * a * b / 2"),
-    #     ("(a + 2) ^ 2", "a * a + 4"),
-    # ):
-    #     print(f"{a} =? {b} =>", compare_values(pb(a), pb(b)))
+    for a, b in (
+        ("a", "b"),
+        ("1", "2 + 2"),
+        ("a", "a * 2  / 2"),
+        ("2", "2.0"),
+        ("2 + 1 / 2", "2  + 2 / 4"),
+        ("1", "1 / 2 + 2 / 4"),
+        ("2", "1 + 1 / 2 + 1 / 2"),
+        ("(1 / 2) * 2", "1"),
+        ("1 + 1 / 1", "2"),
+        ("2 / 2 * (2 + a)", "2 + a"),
+        ("2 * a", "4 * a / 2"),
+        ("2 * a * b", "4 * a * b / 2"),
+        ("(a + 2) ^ 2", "a * a + 4"),
+        ("5 * (8 / 5 - 2 / 7)", "8  - 5 * 2 / 7"),
+        ("5 * (8 / 5 + -1 * 2 + 2)", "(8 * (8 / 5 + -1 * 2)) / (8 / 5 + -1 * 2)"),
+    ):
+        print(f"{a} =? {b} =>", compare_values(pb(a), pb(b)))
