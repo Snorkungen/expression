@@ -1,7 +1,6 @@
-from typing import Literal, Optional, TypedDict
+from typing import Literal, Optional, TypeVar, TypedDict
 from expression_parser import parse, TT_Equ
 from expression_tree_builder2 import *
-from expression_compare import *
 from utils import *
 
 
@@ -12,6 +11,264 @@ class SolveActionEntry(TypedDict):
 
     parameters: Iterable[Any]
     derrived_values: Iterable[Any]
+
+def compare_values(a: TokenValue, b: TokenValue):
+    """compares if two values are the equal
+    DO NOT TOUCH RECURSIVE MESS
+    """
+    if compare_variables(a, b):
+        return True
+
+    # this function is going to be a recursive mess
+
+    # compare numeric values
+    if (
+        a.token_type & TT_Numeric
+        and b.token_type & TT_Numeric
+        and a.token_value == b.token_value
+    ):
+        return True
+
+
+    # if they are mismatching variables
+    if b_nand(a.token_type, TT_INFO_MASK) == TT_Ident and b_nand(b.token_type, TT_INFO_MASK) == TT_Ident:
+        return False
+
+    # raise BaseException("Who called this", str(a), str(b))
+
+    # the goal is to convert everything into a fraction
+    def coerce_into_fraction(node: TokenValue) -> Operation:
+        if (
+            node.token_type & TT_Numeric
+            or b_nand(node.token_type, TT_INFO_MASK) == TT_Ident
+        ):
+            return Operation.create("/", node, Integer.create(1))
+        if node.token_type & TT_Func:
+            raise NotImplemented("What are functions")
+
+        assert isinstance(node, Operation), str(node)
+
+        if node.token_type & TT_Add:
+            # loop through and unite everyting around a single fraction
+            dividend_terms: list[TokenValue] = []
+            divisor_terms: list[TokenValue] = []
+            divisor_factors: list[TokenValue] = []
+
+            # do a more dumb solution collect all the dividends and divisors into associative lisst
+
+            for val in node.values:
+                dividends, divisors = _collect_dividends_and_divisors(val)
+                # the dividend term must be multiplied with the existing divisors
+                dividend_terms.append(
+                    _construct_token_value_with_values(
+                        Operation.create("*"), *dividends
+                    )
+                )
+                divisor_terms.append(
+                    _construct_token_value_with_values(Operation.create("*"), *divisors)
+                )
+
+            divisor = _construct_token_value_with_values(
+                Operation.create("*"), *divisor_terms
+            )
+
+            assert len(dividend_terms) == len(divisor_terms)
+
+            for i in range(len(dividend_terms)):
+                dividend_terms[i] = _construct_token_value_with_values(
+                    Operation.create("*"),
+                    *map(
+                        lambda v: v[1],
+                        filter(lambda j: j[0] != i, enumerate(divisor_terms)),
+                    ),
+                    dividend_terms[i],
+                )
+
+            dividend = _construct_token_value_with_values(
+                Operation.create("+"), *dividend_terms
+            )
+
+            if dividend.token_type & TT_Add:
+                dividend = _simplify_terms(dividend, [])
+            if divisor.token_type & TT_Mult:
+                divisor = _simplify_factors(divisor, [])
+
+            return _construct_token_value_with_values(
+                Operation.create("/"), dividend, divisor
+            )
+
+        return _simplify_division_flatten(
+            Operation.create("/", node, Integer.create(1)), []
+        )
+
+    a = coerce_into_fraction(a)
+    b = coerce_into_fraction(b)
+
+    def _gather_terms(node: TokenValue) -> Iterable[TokenValue]:
+        if node.token_type & TT_Operation == 0:
+            return (node,)
+
+        assert isinstance(node, Operation)
+
+        if node.token_type & TT_Mult:
+            # loop igenom and see if there are any terms that need distribution
+
+            for i in range((len(node.values))):
+                if node.values[i].token_type & TT_Add == 0:
+                    i += 1
+                    continue
+
+                terms = _simplify_distribute_factor(node, i, [], simplify_terms=False)
+                return _gather_terms(terms)
+        elif node.token_type & TT_Exponent and not (
+            node.left.token_type & TT_Numeric
+            or b_nand(node.left.token_type, TT_INFO_MASK) == TT_Ident
+        ):
+            return _gather_terms(_simplify_distribute_exponentiation(node, -1, []))
+
+        # NOTE: unclear how this handles 2 * (1 + 2* (3 + a))
+
+        if node.token_type & TT_Add:
+            return node.values
+        if node.token_type & TT_Mult:
+            return (node,)
+        if node.token_type & TT_Exponent:
+            return (node,)
+        raise NotImplementedError("This is not expected", str(node))
+
+    a = Operation.create(
+        "/",
+        _construct_token_value_with_values(
+            Operation.create("+"), *_gather_terms(a.left)
+        ),
+        _construct_token_value_with_values(
+            Operation.create("+"), *_gather_terms(a.right)
+        ),
+    )
+
+    b = Operation.create(
+        "/",
+        _construct_token_value_with_values(
+            Operation.create("+"), *_gather_terms(b.left)
+        ),
+        _construct_token_value_with_values(
+            Operation.create("+"), *_gather_terms(b.right)
+        ),
+    )
+
+    # multipy a.left with b.right
+
+    a_temp = Operation.create("*", a.left, b.right)
+    if a.left.token_type & TT_Add:
+        a_temp = _simplify_distribute_factor(a_temp, 0, [], simplify_terms=False)
+
+    a_terms = _gather_terms(a_temp)
+
+    b_temp = Operation.create("*", b.left, a.right)
+    if b.left.token_type & TT_Add:
+        b_temp = _simplify_distribute_factor(b_temp, 0, [], simplify_terms=False)
+
+    b_terms = _gather_terms(b_temp)
+
+    # create a inventory for terms
+    # integer_sum
+    # identifier_information
+    #   integer_product
+    #   ident factors
+    #       base
+    #       exponent
+
+    def create_terms_inventory(
+        terms: Iterable[TokenValue],
+    ) -> Tuple[int, Iterable[Tuple[int, Iterable[Tuple[TokenValue, TokenValue]]]]]:
+        integer_sum = 0
+        ident_values = []
+        for term in terms:
+            if term.token_type & TT_Int:
+                integer_sum += term.token_value
+            elif term.token_type & TT_Mult and isinstance(term, Operation):
+                integer_product = 1
+                ident_factors = []
+                for factor in term.values:
+                    if factor.token_type & TT_Int:
+                        integer_product *= factor.token_value
+                    elif factor.token_type & TT_Exponent:
+                        ident_factors.append(factor.values)
+                    else:
+                        ident_factors.append((factor, Integer.create(1)))
+
+                # there should be logic that does exponentiation here
+
+                if integer_product == 0:
+                    continue
+                elif len(ident_factors) == 0:
+                    integer_sum += integer_product
+                else:
+                    ident_values.append((integer_product, ident_factors))
+            else:
+                raise NotImplementedError(
+                    "This is dumb, cannot gather information about this term", str(term)
+                )
+
+        return integer_sum, ident_values
+
+    a_integer_sum, a_ident_values = create_terms_inventory(a_terms)
+    b_integer_sum, b_ident_values = create_terms_inventory(b_terms)
+
+    if a_integer_sum != b_integer_sum:
+        return False
+
+    if len(a_ident_values) != len(b_ident_values):
+        return False
+
+    T = TypeVar("T")
+
+    def _compare_iterables(
+        a: Iterable[T], b: Iterable[T], comparefn: Callable[[T, T], bool]
+    ):
+        if len(a) != len(b):
+            return False
+
+        al = list(a)
+        bl = list(b)
+        i = 0
+        while i < len(al):
+            j = 0
+            while j < len(bl):
+                if not comparefn(al[i], bl[j]):
+                    j += 1
+                    continue
+                al.pop(i)
+                bl.pop(j)
+                break
+            else:
+                i += 1
+
+        return (len(al) == len(bl)) and len(al) == 0
+
+    # loop through and find a mathing value
+
+    return _compare_iterables(
+        a_ident_values,
+        b_ident_values,
+        lambda a, b: a[0] == b[0]
+        and _compare_iterables(
+            a[1],
+            b[1],
+            lambda sa, sb: compare_values(sa[0], sb[0])
+            and compare_values(sa[1], sb[1]),
+        ),
+    )
+
+
+def compare_variables(a: TokenValue, b: TokenValue) -> bool:
+    if a == b:
+        return True
+
+    if isinstance(a, Variable) and isinstance(b, Variable):
+        return a.token_value == b.token_value
+
+    return False
 
 
 def is_target_variable_in_tree(node: Operation, target: Variable) -> bool:
@@ -82,7 +339,6 @@ def targets_share_exponent(node: Operation, target: Variable):
         return exponents
 
     exponents = list(_collect_exponents(node))
-    print(node, [*map(str, exponents)])
     if len(exponents) <= 1:
         return True
 
@@ -271,7 +527,7 @@ def _simplify_exponentiation(
     if base.token_type & TT_Int and exponent.token_type & TT_Int:
         for _ in range(1, exponent.token_value):
             base.token_value *= base.token_value
-        node = base
+        return base
     elif node.right.token_type & TT_Numeric and node.right.token_value == 1:
         node = node.left
     elif node.right.token_type & TT_Numeric and node.right.token_value == 0:
@@ -754,7 +1010,10 @@ def _simplify_division(
 
 
 def _simplify_distribute_factor(
-    node: Operation, idx: int, solve_action_list: list[SolveActionEntry]
+    node: Operation,
+    idx: int,
+    solve_action_list: list[SolveActionEntry],
+    simplify_terms=True,
 ):
     assert len(node.values) > idx and idx >= 0
     assert node.token_type & TT_Mult
@@ -769,16 +1028,16 @@ def _simplify_distribute_factor(
         return node  # there is nothing to do
 
     if value.token_type & TT_Add:
-        distributed_value = _simplify_terms(  # simplify_terms called due to the fact that this is a add operation
-            _construct_token_value_with_values(
-                value,
-                *map(
-                    lambda v: _construct_token_value_with_values(node, *values, v),
-                    value.values,
-                ),
+        distributed_value = _construct_token_value_with_values(
+            value,
+            *map(
+                lambda v: _construct_token_value_with_values(node, *values, v),
+                value.values,
             ),
-            solve_action_list=solve_action_list,
         )
+
+        if simplify_terms:
+            distributed_value = _simplify_terms(distributed_value, solve_action_list)
 
         solve_action_list.append(
             {
@@ -891,7 +1150,7 @@ def _temp_name_smush_all_terms_containing_the_target_into_one_fraction(
         dividends, divisors = _collect_dividends_and_divisors(values[j])
 
         # if this is the first occurence with the target in the divisor save the location
-        if i < 0 and _count_targets_in_values(divisors, target):
+        if i < 0:  # and _count_targets_in_values(divisors, target):
             i = int(j)
 
         relevant_values.append(
@@ -1610,25 +1869,41 @@ def pb(s: str):
 a = Variable.create("a")
 b = Variable.create("b")
 
-# _test_solve_for2("f = o * (v + a) / a", a)
-# _test_solve_for2("5 * (a + 2) = (8 / a) * a", a)
-# _test_solve_for2("a * b + c * d = a * e + c * f", a)
-# _test_solve_for2("a = (a + b) /  3",a)
+_test_solve_for2("f = o * (v + a) / a", a)
+_test_solve_for2("5 * (a + 2) = (8 / a) * a", a)
+_test_solve_for2("a * b + c * d = a * e + c * f", a)
+_test_solve_for2("a = (a + b) /  3",a)
 
 # TODO: add some form of logic that checks that the input fraction is valid
-# _test_solve_for2("a / 2  = a", a)
+_test_solve_for2("a / 2  = a", a)
 # TODO: add some of logic when there are an infinite amount of answers
-# _test_solve_for2("a / 2  = a * b", a)
+_test_solve_for2("a / 2  = a * b", a)
 
-# _test_solve_for2("a / 2 + b / a =  1", a)
-# _test_solve_for2("(a ^ 2) ^ 2 + a =  1", a)
-# _test_solve_for2("a / 2 + b / a + 3 =  0", a)
+_test_solve_for2("a / 2 + b / a =  1", a)
+_test_solve_for2("(a ^ 2) ^ 2 + a =  1", a)
+_test_solve_for2("a / 2 + b / a + 3 =  0", a)
 
-# print(_simplify_factor_target(pb("(a / 2) + (b / a) + b"), a, [])) # (a * a + b * 2) / (2 * b) + b
+print(
+    _simplify_factor_target(pb("(a / 2) + (b / a) + b"), a, [])
+)  # (a ^ 2 + b * 2) / (2 * b) + b
 
 print(targets_share_exponent(pb("(a^ 1)^1 + a"), a))
-print(targets_share_exponent(pb("(a^ 2)^1 + a"), a))
+print(targets_share_exponent(pb("(a^ 2)^1 + a ^ (1 + 1 / 2 + 1/2)"), a))
 print(targets_share_exponent(pb("((a ^ (1 / 2) + c) ^ 2 + b)^1 + a"), a))
 
-# TODO: impove compare values
-# ['(1 / 2) * 2', '1'] => 2 / 2 == 1
+for a, b in (
+    ("a", "b"),
+    ("1", "2 + 2"),
+    ("a", "a * 2  / 2"),
+    ("2", "2.0"),
+    ("2 + 1 / 2", "2  + 2 / 4"),
+    ("1", "1 / 2 + 2 / 4"),
+    ("2", "1 + 1 / 2 + 1 / 2"),
+    ("(1 / 2) * 2", "1"),
+    ("1 + 1 / 1", "2"),
+    ("2 / 2 * (2 + a)", "2 + a"),
+    ("2 * a", "4 * a / 2"),
+    ("2 * a * b", "4 * a * b / 2"),
+    ("(a + 2) ^ 2", "a * a + 4"),
+):
+    print(f"{a} =? {b} =>", compare_values(pb(a), pb(b)))
