@@ -187,10 +187,13 @@ def compare_values(a: TokenValue, b: TokenValue):
 
     b_terms = _gather_terms(b_temp)
 
-
     # this is dumb.
-    a_temp = coerce_into_fraction(_construct_token_value_with_values(Operation.create("+"), *a_terms))
-    b_temp = coerce_into_fraction(_construct_token_value_with_values(Operation.create("+"), *b_terms))
+    a_temp = coerce_into_fraction(
+        _construct_token_value_with_values(Operation.create("+"), *a_terms)
+    )
+    b_temp = coerce_into_fraction(
+        _construct_token_value_with_values(Operation.create("+"), *b_terms)
+    )
 
     a_terms = _gather_terms(Operation.create("*", a_temp.left, b_temp.right))
     b_terms = _gather_terms(Operation.create("*", b_temp.left, a_temp.right))
@@ -1495,6 +1498,26 @@ def solve_for2(
                             i += 1
                             continue
 
+                        if isinstance(value, Operation) and multiple_targets_in_values(
+                            value.values, target
+                        ):
+                            distributed = None
+                            for j, sub_value in enumerate(value.values):
+                                if not is_target_variable_in_tree(sub_value, target):
+                                    continue
+
+                                if sub_value.token_type & TT_Add:
+                                    distributed = _simplify_distribute_factor(
+                                        value, j, solve_action_list
+                                    )
+                                    values[i] = distributed.values[0]
+                                    for j in range(1, len(distributed.values)):
+                                        values.insert(i + j, distributed.values[j])
+                                    break
+
+                            if distributed:
+                                continue
+
                         _subtract(
                             node, target_idx, value, solve_action_list=solve_action_list
                         )
@@ -1651,7 +1674,6 @@ def solve_for2(
 
                 if value_set:
                     continue
-
                 if not targets_share_exponent(root, target):
                     print(
                         "Action unknown, quittin loop, terms with differing exponents"
@@ -1927,6 +1949,8 @@ if __name__ == "__main__":
     a = Variable.create("a")
     b = Variable.create("b")
 
+    _test_solve_for2("a = c + b / (b + a)", a)
+    # _test_solve_for2("a = b + b^2 / (b + a)", a)
     # _test_solve_for2("5 * (a + 2) = (8 / a) * a", a)
     # _test_solve_for2("u / a = a / 2", a)
     # _test_solve_for2("u / a + 1= a / 2 + 4", a)
@@ -1954,21 +1978,21 @@ if __name__ == "__main__":
     # print(targets_share_exponent(pb("(a^ 2)^1 + a ^ (1 + 1 / 2 + 1/2)"), a))
     # print(targets_share_exponent(pb("((a ^ (1 / 2) + c) ^ 2 + b)^1 + a"), a))
 
-    for a, b in (
-        ("a", "b"),
-        ("1", "2 + 2"),
-        ("a", "a * 2  / 2"),
-        ("2", "2.0"),
-        ("2 + 1 / 2", "2  + 2 / 4"),
-        ("1", "1 / 2 + 2 / 4"),
-        ("2", "1 + 1 / 2 + 1 / 2"),
-        ("(1 / 2) * 2", "1"),
-        ("1 + 1 / 1", "2"),
-        ("2 / 2 * (2 + a)", "2 + a"),
-        ("2 * a", "4 * a / 2"),
-        ("2 * a * b", "4 * a * b / 2"),
-        ("(a + 2) ^ 2", "a * a + 4"),
-        ("5 * (8 / 5 - 2 / 7)", "8  - 5 * 2 / 7"),
-        ("5 * (8 / 5 + -1 * 2 + 2)", "(8 * (8 / 5 + -1 * 2)) / (8 / 5 + -1 * 2)"),
-    ):
-        print(f"{a} =? {b} =>", compare_values(pb(a), pb(b)))
+    # for a, b in (
+    #     ("a", "b"),
+    #     ("1", "2 + 2"),
+    #     ("a", "a * 2  / 2"),
+    #     ("2", "2.0"),
+    #     ("2 + 1 / 2", "2  + 2 / 4"),
+    #     ("1", "1 / 2 + 2 / 4"),
+    #     ("2", "1 + 1 / 2 + 1 / 2"),
+    #     ("(1 / 2) * 2", "1"),
+    #     ("1 + 1 / 1", "2"),
+    #     ("2 / 2 * (2 + a)", "2 + a"),
+    #     ("2 * a", "4 * a / 2"),
+    #     ("2 * a * b", "4 * a * b / 2"),
+    #     ("(a + 2) ^ 2", "a * a + 4"),
+    #     ("5 * (8 / 5 - 2 / 7)", "8  - 5 * 2 / 7"),
+    #     ("5 * (8 / 5 + -1 * 2 + 2)", "(8 * (8 / 5 + -1 * 2)) / (8 / 5 + -1 * 2)"),
+    # ):
+    #     print(f"{a} =? {b} =>", compare_values(pb(a), pb(b)))
