@@ -12,6 +12,7 @@ class SolveActionEntry(TypedDict):
     parameters: Iterable[Any]
     derrived_values: Iterable[Any]
 
+
 def compare_values(a: TokenValue, b: TokenValue):
     """compares if two values are the equal
     DO NOT TOUCH RECURSIVE MESS
@@ -29,9 +30,11 @@ def compare_values(a: TokenValue, b: TokenValue):
     ):
         return True
 
-
     # if they are mismatching variables
-    if b_nand(a.token_type, TT_INFO_MASK) == TT_Ident and b_nand(b.token_type, TT_INFO_MASK) == TT_Ident:
+    if (
+        b_nand(a.token_type, TT_INFO_MASK) == TT_Ident
+        and b_nand(b.token_type, TT_INFO_MASK) == TT_Ident
+    ):
         return False
 
     # raise BaseException("Who called this", str(a), str(b))
@@ -1540,6 +1543,13 @@ def solve_for2(
 
         if multiple_targets_in_values(root.values, target):
             if root.token_type & TT_Div:
+                # the following should be refactored
+                if is_destination_zero():
+                    _multiply(node, destin_idx, root.right, solve_action_list)
+                    node.values[target_idx] = root.left
+                    _fix_last_entries_derrived_value(node, solve_action_list)
+                    continue
+
                 # check if the target is locked within something annoying
                 if root.left.token_type & TT_Mult and isinstance(root.left, Operation):
                     for j, factor in enumerate(root.left.values):
@@ -1558,8 +1568,12 @@ def solve_for2(
                             root = node.values[target_idx]
                             left = root.left
                             right = root.right
-
-                if (
+                            break
+                    else:
+                        raise RuntimeError(
+                            "Unknown what i was thinking when i wrote the above"
+                        )
+                elif (
                     left.token_type & TT_Add
                     and isinstance(left, Operation)
                     and isinstance(right, Variable)
@@ -1596,28 +1610,31 @@ def solve_for2(
                     # NOTE: the following will expect a multiplication to occur following this step
                     pass
 
-                if not targets_share_exponent(root, target):
-                    print(
-                        "Action unknown, quittin loop, terms with differing exponents"
-                    )
-                    break
                 value_set = False
                 for v in root.values:
-                    if (
-                        v.token_type & TT_Div
-                        and isinstance(v, Operation)
-                        and is_target_variable_in_tree(v.right, target)
-                    ):
+                    if v.token_type & (TT_Div | TT_Mult) and isinstance(v, Operation):
+                        _, divisors = _collect_dividends_and_divisors(v)
+
+                        if _count_targets_in_values(divisors, target) < 1:
+                            continue
+
                         node.values[target_idx] = (
                             _temp_name_smush_all_terms_containing_the_target_into_one_fraction(
                                 root, target, solve_action_list
                             )
                         )
+
                         value_set = True
                         break
 
                 if value_set:
                     continue
+
+                if not targets_share_exponent(root, target):
+                    print(
+                        "Action unknown, quittin loop, terms with differing exponents"
+                    )
+                    break
 
                 factored_value = _simplify_factor_target(
                     root, target, solve_action_list
@@ -1656,6 +1673,11 @@ def solve_for2(
                 i += 1
         elif root.token_type & TT_Mult:
             values = list(root.values)
+
+            if is_destination_zero() and len(collect_all_variables(root)) > 1:
+                print("Action unknown, quittin loop, destination is nil")
+                break
+
             i = 0
             while i < len(values):
                 value = values[i]
@@ -1866,44 +1888,50 @@ def pb(s: str):
     return build_tree2(parse(s))
 
 
-a = Variable.create("a")
-b = Variable.create("b")
+if __name__ == "__main__":
+    a = Variable.create("a")
+    b = Variable.create("b")
 
-_test_solve_for2("f = o * (v + a) / a", a)
-_test_solve_for2("5 * (a + 2) = (8 / a) * a", a)
-_test_solve_for2("a * b + c * d = a * e + c * f", a)
-_test_solve_for2("a = (a + b) /  3",a)
+    _test_solve_for2("5 * (a + 2) = (8 / a) * a", a)
+    _test_solve_for2("u / a = a / 2", a)
+    _test_solve_for2("u / a + 1= a / 2 + 4", a)
+    _test_solve_for2("u / (a + 4) = a / 2",a)
 
-# TODO: add some form of logic that checks that the input fraction is valid
-_test_solve_for2("a / 2  = a", a)
-# TODO: add some of logic when there are an infinite amount of answers
-_test_solve_for2("a / 2  = a * b", a)
+    _test_solve_for2("f = o * (v + a) / a", a)
+    _test_solve_for2("5 * (a + 2) = (8 / a) * a", a)
+    _test_solve_for2("a * b + c * d = a * e + c * f", a)
+    _test_solve_for2("a = (a + b) /  3",a)
 
-_test_solve_for2("a / 2 + b / a =  1", a)
-_test_solve_for2("(a ^ 2) ^ 2 + a =  1", a)
-_test_solve_for2("a / 2 + b / a + 3 =  0", a)
+    # TODO: add some form of logic that checks that the input fraction is valid
+    _test_solve_for2("a / 2  = a", a)
+    # TODO: add some of logic when there are an infinite amount of answers
+    _test_solve_for2("a / 2  = a * b", a)
 
-print(
-    _simplify_factor_target(pb("(a / 2) + (b / a) + b"), a, [])
-)  # (a ^ 2 + b * 2) / (2 * b) + b
+    _test_solve_for2("a / 2 + b / a =  1", a)
+    _test_solve_for2("(a ^ 2) ^ 2 + a =  1", a)
+    _test_solve_for2("a / 2 + b / a + 3 =  0", a)
 
-print(targets_share_exponent(pb("(a^ 1)^1 + a"), a))
-print(targets_share_exponent(pb("(a^ 2)^1 + a ^ (1 + 1 / 2 + 1/2)"), a))
-print(targets_share_exponent(pb("((a ^ (1 / 2) + c) ^ 2 + b)^1 + a"), a))
+    # print(
+    #     _simplify_factor_target(pb("(a / 2) + (b / a) + b"), a, [])
+    # )  # (a ^ 2 + b * 2) / (2 * b) + b
 
-for a, b in (
-    ("a", "b"),
-    ("1", "2 + 2"),
-    ("a", "a * 2  / 2"),
-    ("2", "2.0"),
-    ("2 + 1 / 2", "2  + 2 / 4"),
-    ("1", "1 / 2 + 2 / 4"),
-    ("2", "1 + 1 / 2 + 1 / 2"),
-    ("(1 / 2) * 2", "1"),
-    ("1 + 1 / 1", "2"),
-    ("2 / 2 * (2 + a)", "2 + a"),
-    ("2 * a", "4 * a / 2"),
-    ("2 * a * b", "4 * a * b / 2"),
-    ("(a + 2) ^ 2", "a * a + 4"),
-):
-    print(f"{a} =? {b} =>", compare_values(pb(a), pb(b)))
+    # print(targets_share_exponent(pb("(a^ 1)^1 + a"), a))
+    # print(targets_share_exponent(pb("(a^ 2)^1 + a ^ (1 + 1 / 2 + 1/2)"), a))
+    # print(targets_share_exponent(pb("((a ^ (1 / 2) + c) ^ 2 + b)^1 + a"), a))
+
+    # for a, b in (
+    #     ("a", "b"),
+    #     ("1", "2 + 2"),
+    #     ("a", "a * 2  / 2"),
+    #     ("2", "2.0"),
+    #     ("2 + 1 / 2", "2  + 2 / 4"),
+    #     ("1", "1 / 2 + 2 / 4"),
+    #     ("2", "1 + 1 / 2 + 1 / 2"),
+    #     ("(1 / 2) * 2", "1"),
+    #     ("1 + 1 / 1", "2"),
+    #     ("2 / 2 * (2 + a)", "2 + a"),
+    #     ("2 * a", "4 * a / 2"),
+    #     ("2 * a * b", "4 * a * b / 2"),
+    #     ("(a + 2) ^ 2", "a * a + 4"),
+    # ):
+    #     print(f"{a} =? {b} =>", compare_values(pb(a), pb(b)))
