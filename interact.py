@@ -1,4 +1,3 @@
-import readline
 from typing import Union
 from expression_parser import *
 from expression_tree_builder2 import *
@@ -30,9 +29,13 @@ class State:
         self.functions = {}
         self.history = []
         self.prompt = "enter:"
-
-        readline.parse_and_bind("tab: complete")
-        readline.set_completer(self.tab_completer)
+        
+        try:
+            import readline
+            readline.parse_and_bind("tab: complete")
+            readline.set_completer(self.tab_completer)
+        except:
+            pass
 
     @property
     def reserved_identities(self):
@@ -152,7 +155,7 @@ def dispatch_solve_for(state: State, node: Function):
 
 description_inspect_solve: RegisteredFunctionDescription = {
     "short_description": "Show the solve actions that were not shown",
-    "signatures": ("inspect_solve (0)", "inspect_solve (1)"),
+    "signatures": ("inspect_solve (step_number)", "inspect_solve (1)"),
 }
 
 
@@ -203,7 +206,7 @@ description_evaluate_solution: RegisteredFunctionDescription = {
 }
 
 
-def dispatch_evaluate_solution(env: Any, node: Function):
+def dispatch_evaluate_solution(_, node: Function):
     assert len(node.values) == 2
     assert isinstance(node.values[0], Operation)
     assert isinstance(node.values[1], Operation)
@@ -214,7 +217,7 @@ def dispatch_evaluate_solution(env: Any, node: Function):
 
 description_quit: RegisteredFunctionDescription = {
     "short_description": "exit the program",
-    "signatures": ("exit",),
+    "signatures": ("quit",),
 }
 
 
@@ -231,9 +234,16 @@ description_help: RegisteredFunctionDescription = {
 
 def dispatch_help(state: State, f: Function):
     if len(f.values) > 0:
-        value = f.values[0]
-        if isinstance(value, Function) and value.token_value in state.functions:
-            print(state.functions[value.token_value][1]["signatures"])
+        for value in f.values:
+            if isinstance(value, Function) and value.token_value in state.functions:
+                if isinstance(state.functions[value.token_value], str):
+                    value.token_value = state.functions[value.token_value]
+
+                print("Signatures for:", value.token_value)
+                for signature in state.functions[value.token_value][1]["signatures"]:
+                    print(signature)
+        else:
+            print("-" * len(value.token_value))
             return
 
     for name in state.functions:
@@ -289,9 +299,10 @@ if __name__ == "__main__":
 
     state.register_alias("exit", "quit")
     state.register_alias("evalsol", "evaluate_solution")
+    state.register_alias("solve", "solve_for")
 
     state.dispatch(f"solve_for({TESTING_EQUATION}, a)")
-    state.dispatch("inspect_solve 1")
+    state.dispatch("inspect_solve 2")
 
     state.dispatch("help")
 
