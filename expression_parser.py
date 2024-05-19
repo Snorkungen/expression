@@ -279,15 +279,37 @@ def parse(
                 # TODO: this is most definitively an error
                 break
 
-            if tokens[i + 2][0] & TT_Numeric and next_token[0] & TT_Sub:
-
+            # handle *, -, a
+            if tokens[i + 2][0] & TT_Numeric and next_token[0] & (TT_Sub | TT_Add):
                 tokens[i + 2] = (
-                    (b_nand(tokens[i + 2][0], TT_INFO_MASK)) | TT_Numeric_Negative,
+                    (
+                        (b_nand(tokens[i + 2][0], TT_INFO_MASK)) | TT_Numeric_Negative
+                        if next_token[0] & TT_Sub
+                        else TT_Numeric_Positive
+                    ),
                     next_token[1] + tokens[i + 2][1],
                 )
 
                 tokens.pop(i + 1)
                 tokens_positions.pop(i + 1)
+                continue
+            elif b_nand(tokens[i + 2][0], TT_INFO_MASK) == TT_Ident and (
+                next_token[0] & (TT_Sub | TT_Add)
+            ):
+                tokens.pop(i + 1)
+                tokens_positions.pop(i + 1)
+
+                if next_token[0] & TT_Add:
+                    continue
+
+                tokens[i + 1] = (
+                    TT_Tokens,
+                    [
+                        ((TT_Numeric | TT_Numeric_Negative | TT_Int), "-1"),
+                        (RESERVED_IDENTITIES["*"], "*"),
+                        tokens[i + 1],
+                    ],
+                )
                 continue
 
         if token[0] & TT_Operation and next_token[0] & TT_Operation:

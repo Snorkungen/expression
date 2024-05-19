@@ -67,6 +67,18 @@ class ParserTester(unittest.TestCase):
         self.assertTrue(tokens[0][0] == (TT_Func | TT_Ident))
         self.assertTrue(tokens[1][0] & (TT_Ident))
 
+    def test_operator(self):
+        tokens = parse("10 * - b")
+        self.assertTrue(len(tokens) == 3, tokens)
+        self.assertTrue(tokens[2][0] & TT_Tokens)
+        self.assertTrue(len(tokens[2][1]) == 3)
+        tokens = parse("10 * -2")
+        self.assertTrue(len(tokens) == 3, tokens)
+        self.assertTrue(tokens[2][1] == "-2")
+        tokens = parse("10 * + b")
+        self.assertTrue(len(tokens) == 3, tokens)
+        self.assertTrue(tokens[2][1] == "b")
+
 
 if __name__ == "__main__":
     unittest.main()
