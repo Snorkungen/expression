@@ -535,14 +535,14 @@ def _gather_inventory(node: TokenValue):
 
     for i, value in enumerate(terms):
         if value.token_type & TT_Int:
-            integer_sum += value.token_type
+            integer_sum += value.token_value
             continue
         elif is_node_atomic(value):
             dividends = [value, Integer.create(1)]
         elif isinstance(value, Operation):
             dividends, divisors = _collect_dividends_and_divisors(value)
             if len(divisors) > 0:
-                raise ValueError(str(a), "Division is not expexted")
+                raise ValueError(str(node), "Division is not expexted")
 
             assert len(dividends) > 0
         else:
@@ -699,6 +699,7 @@ if __name__ == "__main__":
         ("1", "2", False),
         ("a", "b", False),
         ("a + a", "2 * a", True),
+        ("5 * (-8 / 5 + 2)", "8", False),
         ("a + 4 * a / 2", "3 * a", True),
         ("2 + 2 ", "5 - 1", True),
         ("1 / 2", "2 / 4", True),
