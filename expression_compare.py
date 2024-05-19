@@ -29,7 +29,7 @@ def _collect_dividends_and_divisors(
 
 def _calculate(node: TokenValue) -> TokenValue:
     """Add and Multiply all integers, where possible"""
-    if node_is_atomic(node) or not isinstance(node, Operation):
+    if is_node_atomic(node) or not isinstance(node, Operation):
         return node
 
     if node.token_type & TT_Add:
@@ -132,9 +132,12 @@ def _construct_token_value_with_values(
     )
 
 
-def node_is_atomic(a: TokenValue):
+def is_node_atomic(a: TokenValue):
     """Wheter the node can be split"""
-    return a.token_type & TT_Numeric or b_nand(a.token_type, TT_INFO_MASK) == TT_Ident
+    return (
+        bool(a.token_type & TT_Numeric)
+        or b_nand(a.token_type, TT_INFO_MASK) == TT_Ident
+    )
 
 
 def compare_variables(a: TokenValue, b: TokenValue) -> bool:
@@ -157,7 +160,7 @@ def compare_numeric(a: TokenValue, b: TokenValue) -> bool:
 def _expand(node: TokenValue) -> TokenValue:
     """2 *(2 + 3) => 2 * 2 + 2 * 3"""
 
-    if node_is_atomic(node) or not isinstance(node, Operation):
+    if is_node_atomic(node) or not isinstance(node, Operation):
         return node
 
     if node.token_type & TT_Add:
@@ -209,6 +212,133 @@ def _expand(node: TokenValue) -> TokenValue:
     raise NotImplementedError
 
 
+def factor_terms_n_stuff(node: Operation):
+    """
+    2 * a * b + 3 * a * b => (2 + 3) * a * b
+    2 * a * b + 3 * a * c => (2 + 3 * c) * a * b
+    2 * a * b / 2 - 4 * a * b => (2 / 2 - 4) * a * b
+    2 * a * b / 2 - 4 * a * b => (2 / 2 - 4) * a * b
+    """
+    assert node.token_type & TT_Add
+
+    term_info: list[Tuple[TokenValue, Iterable[TokenValue]]] = []
+
+    for term in node.values:
+        dividends, divisors = _collect_dividends_and_divisors(term)
+
+        left_factors = []
+        factors = []
+
+        # NOTE: divisors exist and are problematic
+        if len(divisors) > 0:
+            # if divisors are only an integer then
+            for divisor in divisors:
+                divisor = _calculate(_expand(divisor))
+
+                factor = Operation.create("/", Integer.create(1), divisor)
+                if is_node_atomic(divisor) and divisor.token_type & TT_Numeric:
+                    left_factors.append(factor)
+                else:
+                    # check that divisor does not contain special stuff
+                    # NOTE Float exist but are going to be ignored and not function as expected
+                    factors.append(factor)
+
+        integer_product = 1
+        for factor in dividends:
+            if factor.token_type & TT_Int:
+                integer_product *= factor.token_value
+                continue
+            factors.append(factor)
+
+        left_factor: TokenValue
+        if len(left_factors) <= 0:
+            left_factor = Integer.create(integer_product)
+        elif integer_product == 1:
+            left_factor = _construct_token_value_with_values("*", *left_factors)
+        else:
+            left_factor = _construct_token_value_with_values(
+                "*", Integer.create(integer_product), *left_factors
+            )
+
+        term_info.append((left_factor, factors))
+
+    def value_in_factors(factor: TokenValue, factors: Iterable[TokenValue]):
+        for f in factors:
+            if compare_values(factor, f):
+                return True
+        return False
+
+    factors = term_info[0][1]
+
+    # get the shortest amount of factors
+    # that all terms have in common
+    for _, term_factors in term_info[1:]:
+        factors = tuple(filter(lambda n: value_in_factors(n, term_factors), factors))
+
+    if len(factors) <= 0:
+        return Operation.create("*", Integer.create(1), node)  # there is nothing to do
+
+    terms = []
+
+    for left_factor, right_factors in term_info:
+        additional_left_factors = filter(
+            lambda f: not value_in_factors(f, factors), right_factors
+        )
+        left_factor = _construct_token_value_with_values(
+            "*", left_factor, *additional_left_factors
+        )
+
+        terms.append(left_factor)
+
+    term = _calculate(_construct_token_value_with_values("+", *terms))
+    return _construct_token_value_with_values("*", term, *factors)
+
+
+def is_node_negative(node: TokenValue) -> bool:
+    """Returns if node can be perceived as being negative
+
+    -1 => True
+
+    2 - 10 => True
+
+    -1 * a => True
+
+    2 * a - 4 * a => True
+    """
+    if node.token_type & TT_Numeric and node.token_value < 0:
+        return True
+    if is_node_atomic(node):
+        return False
+
+    # NOTE recursive call to coerce into fraction
+    coerced_fraction = _calculate(_coerce_into_fraction(node))
+    dividends, divisors = _collect_dividends_and_divisors(coerced_fraction)
+
+    # for terms factor
+
+    flip_flop = False
+    for factor in (*dividends, *divisors):
+        # factor = _calculate(factor) # should have been calculated earlier
+        if is_node_atomic(factor) and is_node_negative(factor):
+            flip_flop = not flip_flop
+
+        if factor.token_type & TT_Add and isinstance(node, Operation):
+            # NOTE Recursive call to compare variables
+            # NOTE the below function returns the left most as the interesting value
+            left = factor_terms_n_stuff(factor).left
+
+            # TODO: in future the below check is wrong Float can be known if theyre negative or positive
+            if is_node_negative(left):
+                flip_flop = not flip_flop
+
+    # what does it mean for an expression to be negative
+    # the following will be handled
+    # -1 * a
+    # -1 * -2 * (1 + -2)
+
+    return flip_flop
+
+
 def _coerce_into_fraction(node: TokenValue):
     """
     Make node a fraction
@@ -221,7 +351,7 @@ def _coerce_into_fraction(node: TokenValue):
         n, ONE_INTEGER
     )
 
-    if node_is_atomic(node) or not isinstance(node, Operation):
+    if is_node_atomic(node) or not isinstance(node, Operation):
         return Operation.create("/", node, ONE_INTEGER)
 
     node = _expand(node)
@@ -229,6 +359,16 @@ def _coerce_into_fraction(node: TokenValue):
     # recursively walk each node and _coerce_into_fraction
 
     if node.token_type & TT_Exponent:
+        assert isinstance(node, Operation)
+
+        if is_node_negative(node.right):
+            # node is negative
+            exponent = _calculate(Operation.create("*", node.right, Integer.create(-1)))
+
+            return Operation.create(
+                "/", ONE_INTEGER, Operation.create("^", node.left, exponent)
+            )
+
         return Operation.create("/", node, ONE_INTEGER)
 
     if node.token_type & TT_Div:
@@ -311,7 +451,7 @@ def _coerce_into_fraction(node: TokenValue):
 
 
 def _gather_terms(node: TokenValue):
-    if node_is_atomic(node) or not isinstance(node, Operation):
+    if is_node_atomic(node) or not isinstance(node, Operation):
         return (node,)
 
     if node.token_type & TT_Add:
@@ -397,7 +537,7 @@ def _gather_inventory(node: TokenValue):
         if value.token_type & TT_Int:
             integer_sum += value.token_type
             continue
-        elif node_is_atomic(value):
+        elif is_node_atomic(value):
             dividends = [value, Integer.create(1)]
         elif isinstance(value, Operation):
             dividends, divisors = _collect_dividends_and_divisors(value)
@@ -422,7 +562,7 @@ def _gather_inventory(node: TokenValue):
 
             if str(factor) in node_factors:
                 continue
-   
+
             # now we can assume this a variable
 
             this_factor = _construct_token_value_with_values(
@@ -458,7 +598,7 @@ def compare_values(a: TokenValue, b: TokenValue):
     if compare_variables(a, b) or compare_numeric(a, b):
         return True
 
-    if node_is_atomic(a) and node_is_atomic(b):
+    if is_node_atomic(a) and is_node_atomic(b):
         return False
 
     if (a.token_type | b.token_type) & TT_Equ:
@@ -508,20 +648,43 @@ def pb(s: str):
 
 
 if __name__ == "__main__":
+    for a, expected in (
+        ("2 * a * c - 4 * a * b", "(2 * c + -4 * b) * a"),
+        ("2 * a * b - 4 * a * b * c", "(2 + -4 * c) * a * b"),
+        ("2 * a * b - 4 * a * b", "-2 * a * b"),
+        ("2 * a * b - 4 * a * b * c", "(2 + -4 * c) * a * b"),
+        ("2 * a * 1 / (2 + 2) - 4 * a", "(-4 + 2 * (1 / 4)) * a"),
+        ("2 * a * 1 / (b) - 4 * a", "(-4 + 2 * (1 / b)) * a"),
+        # ("-4 + 2 * (1 / b)", ""), # How should that work? (-4 + 2) * (1 / b)
+    ):
+        ftns = factor_terms_n_stuff(pb(a))
+        if str(ftns) != expected:
+            print(ftns, "Expected", expected)
+
+    for a, b in (
+        ("-1", True),
+        ("(-b)", True),
+        ("1 / 2 - 1", True),
+        ("2 * a * b - 4 * a * b", True),
+        ("2 * a * b - 4 * a * b * c", False),
+    ):
+        res = is_node_negative(pb(a))
+        if b != res:
+            print(a, res)
+
     for a, b in (
         ("1", "1 / 1"),
         ("1 / 2 + 2", "(1 + 2 * 2) / 2"),
         ("(1 / 2) / 2", "1 / (2 * 2)"),
         ("1 * 2 / 4", "2 / 4"),
         ("a ^ 2", "a ^ 2 / 1"),
-        (
-            "a ^ -2",
-            "a ^ -2 / 1",
-        ),  # in future i would like this program to understand negative exponent
+        ("a ^ -2", "1 / a ^ 2"),
         ("(1 / 2 + 2) / 2", "(1 + 2 * 2) / (2 * 2)"),
         ("a + 2 * a / 2", "(2 * a + 2 * a) / 2"),
         ("2 * (1 / 2 + 3)", "(2 + 2 * 3 * 2) / 2"),
         ("2 * (2+ 1) * (3 + 3)", "(3 * 2 * 2 + 3 * 2 * 2 + 3 * 2 + 3 * 2) / 1"),
+        ("a ^ -1", "1 / a ^ 1"),
+        ("a ^ (-b)", "1 / a ^ b"),
     ):
         fraction = _coerce_into_fraction(pb(a))
         if str(fraction) != b:
@@ -541,11 +704,16 @@ if __name__ == "__main__":
         ("1 / 2", "2 / 4", True),
         ("5 * (8 / 5 - 2 / 7)", "8  - 5 * 2 / 7", True),
         ("5 * (8 / 5 + -1 * 2 + 2)", "(8 * (8 / 5 + -1 * 2)) / (8 / 5 + -1 * 2)", True),
-        ("(7 * (b / (7 / 2 + 2))) / 2 + b / (7 / 2 + 2)", "b + -1 * (b / (7 / 2 + 2))", True),
+        (
+            "(7 * (b / (7 / 2 + 2))) / 2 + b / (7 / 2 + 2)",
+            "b + -1 * (b / (7 / 2 + 2))",
+            True,
+        ),
         ("(a + 2) ^ 2", "a * a + 4", True),
         ("1 / a", "1 / (2 * a) * 2", True),
         ("a * b + 100", "(50 + (a * b) / 2) * 2", True),
         ("a * b + 100", "(50 + (a * b) / 2) * 2", True),
+        ("a * b ^ (-1)", "a / b", True),
     ):
         res = compare_values(pb(a), pb(b))
         if res != expected:
