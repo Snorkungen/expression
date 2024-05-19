@@ -1,4 +1,4 @@
-from typing import Literal, Optional, TypeVar, TypedDict
+from typing import Literal, Optional, TypedDict
 from expression_parser import parse, TT_Equ
 from expression_tree_builder2 import *
 from utils import *
@@ -1038,10 +1038,10 @@ def _simplify_factor_target(
             if multiple_targets_in_values(value.values, target):
                 values[i] = _simplify_factors_exponentiation(value, solve_action_list)
                 value = values[i]
-
+            factors = list(value.values)
             # here check if there are any values that need to be distributed
             distributed_value = None
-            for j in range(len(value.values)):
+            for j in range(len(factors)):
                 # TODO: to make this more general check if the specific value is in tree instead of just checking for variable
                 if (
                     not is_target_variable_in_tree(value.values[j], target)
@@ -1056,6 +1056,19 @@ def _simplify_factor_target(
                         value, j, solve_action_list=solve_action_list
                     )
                     break
+
+                factor = value.values[j]
+                if (
+                    factor.token_type & TT_Div
+                    and isinstance(factor, Operation)
+                    and is_target_variable_in_tree(factor.left, target)
+                ):
+                    factors[j] = _simplify_distribute_factor_from_dividend(
+                        factor, target, solve_action_list
+                    )
+
+            values[i] = _construct_token_value_with_values(value, *factors)
+            value = values[i]
 
             if distributed_value and b_nand(
                 distributed_value.token_type, TT_INFO_MASK
@@ -1193,11 +1206,6 @@ def solve_for2(
         if is_target_variable_in_tree(node.left, target) and is_target_variable_in_tree(
             node.right, target
         ):
-            # NOTE: this statement will not run if a = a + b,
-            # or any similar situation where the only value on the target side is the target variable
-
-            # do the same logic as above
-
             if node.values[destin_idx].token_type & TT_Operation:
                 destin = node.values[destin_idx]
                 assert isinstance(destin, Operation)
@@ -1237,12 +1245,10 @@ def solve_for2(
                             node, target_idx, value, solve_action_list=solve_action_list
                         )
                         values.pop(i)
-
                         # this is verbose but that is the whole point right
                         node.values[destin_idx] = _construct_token_value_with_values(
-                            node.values[destin_idx], *values
+                            destin, *values
                         )
-
                         _fix_last_entries_derrived_value(node, solve_action_list)
                 elif destin.token_type & TT_Mult:
                     values = list(destin.values)
@@ -1262,9 +1268,7 @@ def solve_for2(
                             node.values[destin_idx] = Integer.create(1)
                         else:
                             node.values[destin_idx] = (
-                                _construct_token_value_with_values(
-                                    node.values[destin_idx], *values
-                                )
+                                _construct_token_value_with_values(destin, *values)
                             )
                         _fix_last_entries_derrived_value(node, solve_action_list)
                 elif destin.token_type & TT_Div:
@@ -1370,6 +1374,7 @@ def solve_for2(
                     # NOTE: the following will expect a multiplication to occur following this step
                     pass
 
+                print(root)
                 value_set = False
                 for v in root.values:
                     if v.token_type & (TT_Div | TT_Mult) and isinstance(v, Operation):
@@ -1664,8 +1669,8 @@ if __name__ == "__main__":
     a = Variable.create("a")
     b = Variable.create("b")
 
-    _test_solve_for2("7 * a / 2 + a = 10 - a", a)
-    # _test_solve_for2("a = 2 * a / b + a", a)
+    # _test_solve_for2("7 * a / 2 + a = 10 - a", a)
+    _test_solve_for2("a = 2 * a / b + a", a)
     # _test_solve_for2("a = c + b / (b + a)", a)
     # _test_solve_for2("a = b + b^2 / (b + a)", a)
     # _test_solve_for2("5 * (a + 2) = (8 / a) * a", a)
@@ -1695,22 +1700,22 @@ if __name__ == "__main__":
     # print(targets_share_exponent(pb("(a^ 2)^1 + a ^ (1 + 1 / 2 + 1/2)"), a))
     # print(targets_share_exponent(pb("((a ^ (1 / 2) + c) ^ 2 + b)^1 + a"), a))
 
-    for a, b in (
-        # ("y * a + 2 * a = a +1", "a = 1 / (y + 1)")
-        ("a + a", "2 * a"),
-        # ("1", "2 + 2"),
-        # ("a", "a * 2  / 2"),
-        # ("2", "2.0"),
-        # ("2 + 1 / 2", "2  + 2 / 4"),
-        # ("1", "1 / 2 + 2 / 4"),
-        # ("2", "1 + 1 / 2 + 1 / 2"),
-        # ("(1 / 2) * 2", "1"),
-        # ("1 + 1 / 1", "2"),
-        # ("2 / 2 * (2 + a)", "2 + a"),
-        # ("2 * a", "4 * a / 2"),
-        # ("2 * a * b", "4 * a * b / 2"),
-        # ("(a + 2) ^ 2", "a * a + 4"),
-        # ("5 * (8 / 5 - 2 / 7)", "8  - 5 * 2 / 7"),
-        # ("5 * (8 / 5 + -1 * 2 + 2)", "(8 * (8 / 5 + -1 * 2)) / (8 / 5 + -1 * 2)"),
-    ):
-        print(f"{a} =? {b} =>", compare_values(pb(a), pb(b)))
+    # for a, b in (
+    #     # ("y * a + 2 * a = a +1", "a = 1 / (y + 1)")
+    #     ("a + a", "2 * a"),
+    #     # ("1", "2 + 2"),
+    #     # ("a", "a * 2  / 2"),
+    #     # ("2", "2.0"),
+    #     # ("2 + 1 / 2", "2  + 2 / 4"),
+    #     # ("1", "1 / 2 + 2 / 4"),
+    #     # ("2", "1 + 1 / 2 + 1 / 2"),
+    #     # ("(1 / 2) * 2", "1"),
+    #     # ("1 + 1 / 1", "2"),
+    #     # ("2 / 2 * (2 + a)", "2 + a"),
+    #     # ("2 * a", "4 * a / 2"),
+    #     # ("2 * a * b", "4 * a * b / 2"),
+    #     # ("(a + 2) ^ 2", "a * a + 4"),
+    #     # ("5 * (8 / 5 - 2 / 7)", "8  - 5 * 2 / 7"),
+    #     # ("5 * (8 / 5 + -1 * 2 + 2)", "(8 * (8 / 5 + -1 * 2)) / (8 / 5 + -1 * 2)"),
+    # ):
+    #     print(f"{a} =? {b} =>", compare_values(pb(a), pb(b)))
