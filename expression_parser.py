@@ -97,7 +97,7 @@ Token = NewType("Token", Tuple[int, Any])
 
 
 def parse(
-    input: str, additional_identities: dict[str, int] = None
+    input_text: str, additional_identities: dict[str, int] = None
 ) -> Iterable[Tuple[int, Any]]:
     tokens: list[Tuple[int, Any]] = []
     tokens_positions = []
@@ -110,8 +110,8 @@ def parse(
     else:
         identities = {**RESERVED_IDENTITIES, **additional_identities}
 
-    while i < len(input):
-        char = input[i]
+    while i < len(input_text):
+        char = input_text[i]
         i += 1
 
         if (
@@ -147,8 +147,8 @@ def parse(
             start = i
             depth = 0
             brackets = "()"
-            while i < len(input):
-                char = input[i]
+            while i < len(input_text):
+                char = input_text[i]
                 i += 1
                 if char == brackets[0]:
                     depth += 1
@@ -158,7 +158,7 @@ def parse(
                         tokens.append(
                             (
                                 TT_Tokens,
-                                parse(input[start : i - 1], additional_identities),
+                                parse(input_text[start : i - 1], additional_identities),
                             )
                         )
                         tokens_positions.append(i)
@@ -193,7 +193,21 @@ def parse(
 
         # final thing in loop check buffer for a reserved identity
         if buffer in identities:
-            tokens.append((identities[buffer], buffer))
+            # select the longest match
+            identity_options = filter(lambda name: name.startswith(buffer), identities)
+            selected_identity = buffer
+            for name in identity_options:
+                diff = len(name) - len(buffer)
+                if diff == 0:
+                    pass
+                elif len(selected_identity) < len(name) and len(input_text) > i + diff -1:
+                    if input_text[i: i + diff] == name[-diff:]:
+                        selected_identity = name
+            else:
+                diff = len(selected_identity) - len(buffer)
+                i += diff
+            
+            tokens.append((identities[selected_identity], selected_identity))
             tokens_positions.append(i)
 
             buffer = ""

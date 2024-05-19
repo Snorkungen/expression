@@ -60,12 +60,21 @@ class ParserTester(unittest.TestCase):
         # self.assertEqual(len(tokens[0][1][0][1]), 1)
 
     def test_user_defined_identity(self):
-        identities = {**RESERVED_IDENTITIES, "foo": TT_Func | TT_Ident}
+        identities = {**RESERVED_IDENTITIES, "foo": TT_Func | TT_Ident, "foobar": TT_Func | TT_Ident, "foobarbaz": TT_Func | TT_Ident}
         tokens = parse("fooa", identities)
 
         self.assertTrue(len(tokens) == 2)
         self.assertTrue(tokens[0][0] == (TT_Func | TT_Ident))
         self.assertTrue(tokens[1][0] & (TT_Ident))
+
+        tokens = parse("foobar", identities)
+        self.assertTrue(len(tokens) == 1)
+        tokens = parse("foobarbaz", identities)
+        self.assertTrue(len(tokens) == 1)
+        
+        tokens = parse("foobarybaz", identities)
+        self.assertTrue(len(tokens) == 2)
+        
 
     def test_operator(self):
         tokens = parse("10 * - b")
