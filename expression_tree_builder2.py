@@ -243,30 +243,31 @@ def flatten_terms(node: Operation, inplace=True):
     return Operation((node.token_type, node.token_value), *values)
 
 
+def _create_value(token: Token) -> TokenValue:
+    # zero all info mask bits
+    token_type = token[0] ^ (token[0] & TT_INFO_MASK)
+
+    if b_nand(token_type, TT_INFO_MASK) == (TT_Numeric | TT_Int):
+        return Integer(token)
+    if b_nand(token_type, TT_INFO_MASK) == (TT_Numeric | TT_Float):
+        return Float(token)
+    if b_nand(token_type, TT_INFO_MASK) == TT_Ident:
+        return Variable(token)
+    if b_nand(token_type, TT_INFO_MASK) == TT_Tokens:
+        # TODO: add some kind of note to denote that this thing was surrounded by brackets
+        return build_tree2(token[1])
+    if b_nand(token_type, TT_INFO_MASK) == TB_TOKEN_VALUE:
+        return token[1]
+
+    if b_nand(token_type, TT_INFO_MASK) == (TT_Func | TT_Ident):
+        return Function(token)
+
+    print(token)
+    raise ValueError("token not recognised", str(token))
+
+
 def build_tree2(tokens: Iterable[Token]) -> TokenValue:
     tokens = list(tokens)
-
-    def _create_value(token: Token) -> TokenValue:
-        # zero all info mask bits
-        token_type = token[0] ^ (token[0] & TT_INFO_MASK)
-
-        if b_nand(token_type, TT_INFO_MASK) == (TT_Numeric | TT_Int):
-            return Integer(token)
-        if b_nand(token_type, TT_INFO_MASK) == (TT_Numeric | TT_Float):
-            return Float(token)
-        if b_nand(token_type, TT_INFO_MASK) == TT_Ident:
-            return Variable(token)
-        if b_nand(token_type, TT_INFO_MASK) == TT_Tokens:
-            # TODO: add some kind of note to denote that this thing was surrounded by brackets
-            return build_tree2(token[1])
-        if b_nand(token_type, TT_INFO_MASK) == TB_TOKEN_VALUE:
-            return token[1]
-
-        if b_nand(token_type, TT_INFO_MASK) == (TT_Func | TT_Ident):
-            return Function(token)
-
-        print(token)
-        raise ValueError("token not recognised", str(token))
 
     def _do_operation(
         test: int, OperValue: Callable[[Token, Tuple[TokenValue, ...]], TokenValue]
@@ -398,13 +399,3 @@ def build_tree2(tokens: Iterable[Token]) -> TokenValue:
                 nodes.extend(node.values)
 
     return root
-
-
-# parsed = parse("1 + 3 * 2 - 6 + 3 / 4")
-# node = build_tree2(parsed)
-# assert isinstance(node, Operation)
-# # parsed = parse("(1 + 2 + 3 + 4) * (5 * (6 + 7) + (8 + 9)) * 10")
-# node = build_tree2(parsed)
-# assert isinstance(node, Operation)
-
-# # TODO: write tests
