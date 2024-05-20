@@ -1,4 +1,4 @@
-from typing import Callable
+from typing import Callable, List
 from expression_parser import *
 
 TB_TOKEN_VALUE = TT_RESERVED_1
@@ -290,7 +290,7 @@ def build_tree2(tokens: Iterable[Token]) -> TokenValue:
                     continue
 
                 next_token = tokens[i + 1]
-                values: list[TokenValue] = []
+                values: List[TokenValue] = []
 
                 if next_token[0] & TT_Tokens:
                     # loop through values and seperate on commas

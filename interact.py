@@ -1,4 +1,4 @@
-from typing import Any, Callable, Iterable, Tuple, TypedDict, Union
+from typing import Any, Callable, Iterable, Tuple, TypedDict, Union, List, Dict
 from importlib import reload as importlib_reload
 import expression_parser as parser
 import expression_tree_builder2 as tree_builder2
@@ -12,12 +12,12 @@ class RegisteredFunctionDescription(TypedDict):
 
 class State:
     loop_flag: bool
-    history: list[str]
+    history: List[str]
 
     prompt: str
 
-    env: dict[str, Any]
-    functions: dict[
+    env: Dict[str, Any]
+    functions: Dict[
         str,
         Union[
             Tuple[
@@ -122,7 +122,7 @@ def dispatch_solve_for(state: State, node: tree_builder2.Function):
     assert isinstance(node.values[0], tree_builder2.Operation)
     assert isinstance(node.values[1], tree_builder2.Variable)
 
-    solve_action_list: list[solve2.SolveActionEntry] = []
+    solve_action_list: List[solve2.SolveActionEntry] = []
     try:
         solved = solve2.solve_for2(node.values[0], node.values[1], solve_action_list)
     except NotImplemented:
@@ -134,7 +134,7 @@ def dispatch_solve_for(state: State, node: tree_builder2.Function):
 
     # do some crunching
 
-    actions: list[Tuple[solve2.SolveActionEntry, Iterable[solve2.SolveActionEntry]]] = (
+    actions: List[Tuple[solve2.SolveActionEntry, Iterable[solve2.SolveActionEntry]]] = (
         []
     )
     action_buffer = []
@@ -346,7 +346,7 @@ def dispatch_reflect_token_type(_, func):
 
         print(f"{value.token_value:b}".zfill(BIT_FIELD_LEN), "-", value.token_value)
 
-        info: list[str] = []
+        info: List[str] = []
         flags = value.token_value
 
         if flags & parser.TT_Numeric:

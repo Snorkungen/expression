@@ -1,4 +1,4 @@
-from typing import Iterable, NewType, Tuple, Any, Final
+from typing import Iterable, NewType, Tuple, Any, Final, List, Dict
 
 from utils import b_nand
 
@@ -135,7 +135,7 @@ def is_candidate_for_implicit_multiplication(token: Token):
     )  # either numeric or a tokens token
 
 
-def modify_tokens_to_make_more_sense(tokens: list[Token], tokens_positions: list[int]):
+def modify_tokens_to_make_more_sense(tokens: List[Token], tokens_positions: List[int]):
     """modify the tokens"""
     i = 0
     token: Tuple[int, Any]
@@ -258,9 +258,9 @@ def modify_tokens_to_make_more_sense(tokens: list[Token], tokens_positions: list
 
 
 def parse(
-    input_text: str, additional_identities: dict[str, int] = None
+    input_text: str, additional_identities: Dict[str, int] = None
 ) -> Iterable[Tuple[int, Any]]:
-    tokens: list[Tuple[int, Any]] = []
+    tokens: List[Tuple[int, Any]] = []
     tokens_positions = []
     token_type = 0
     buffer = ""

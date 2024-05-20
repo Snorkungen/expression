@@ -1,4 +1,4 @@
-from typing import Literal, Optional, TypedDict
+from typing import Literal, Optional, TypedDict, List
 from expression_parser import parse, TT_Equ
 from expression_tree_builder2 import *
 from utils import *
@@ -72,7 +72,7 @@ def targets_share_exponent(node: Operation, target: Variable):
                 raise NotImplementedError("target in the exponent oh no")
 
             sub_node = _simplify_distribute_exponentiation(sub_node, -1, [])
-        exponents: list[TokenValue] = []
+        exponents: List[TokenValue] = []
 
         # does the operation matter
 
@@ -102,7 +102,7 @@ def _subtract(
     node: Operation,
     destin_idx: int,
     value: TokenValue,
-    solve_action_list: list[SolveActionEntry],
+    solve_action_list: List[SolveActionEntry],
 ):
     assert node.token_type & TT_Equ, "root must be a equals operation"
     assert isinstance(node, Operation)
@@ -133,7 +133,7 @@ def _multiply(
     node: Operation,
     destin_idx: int,
     value: TokenValue,
-    solve_action_list: list[SolveActionEntry],
+    solve_action_list: List[SolveActionEntry],
 ):
     assert node.token_type & TT_Equ, "root must be a equals operation"
     assert isinstance(node, Operation)
@@ -160,7 +160,7 @@ def _divide(
     node: Operation,
     destin_idx: int,
     value: TokenValue,
-    solve_action_list: list[SolveActionEntry],
+    solve_action_list: List[SolveActionEntry],
 ):
     assert node.token_type & TT_Equ, "root must be a equals operation"
     assert isinstance(node, Operation)
@@ -182,7 +182,7 @@ def _divide(
 
 def _fix_last_entries_derrived_value(
     node: Operation,
-    solve_action_list: list[SolveActionEntry],
+    solve_action_list: List[SolveActionEntry],
 ):
     """Solve, slight inconvenience wher the global solve actions do not have access to the step"""
     assert isinstance(node.values, list)
@@ -215,7 +215,7 @@ def _construct_token_value_with_values(
 
 
 def _simplify_exponentiation_flatten(
-    node: Operation, solve_action_list: list[SolveActionEntry]
+    node: Operation, solve_action_list: List[SolveActionEntry]
 ) -> Operation:
     """
     (a ^ b) ^ c => a ^ (b * c)
@@ -224,7 +224,7 @@ def _simplify_exponentiation_flatten(
 
     node_str = str(node)
 
-    exponent_factors: list[TokenValue] = []
+    exponent_factors: List[TokenValue] = []
     base: TokenValue = node.left
 
     nodes = [node]
@@ -257,7 +257,7 @@ def _simplify_exponentiation_flatten(
 
 
 def _simplify_exponentiation(
-    node: Operation, solve_action_list: list[SolveActionEntry]
+    node: Operation, solve_action_list: List[SolveActionEntry]
 ) -> TokenValue:
     assert node.token_type & TT_Exponent
 
@@ -293,7 +293,7 @@ def _simplify_exponentiation(
 
 
 def _simplify_distribute_exponentiation(
-    node: Operation, idx: int, solve_action_list: list[SolveActionEntry]
+    node: Operation, idx: int, solve_action_list: List[SolveActionEntry]
 ):
     assert node.token_type & TT_Exponent
 
@@ -338,7 +338,7 @@ def _simplify_distribute_exponentiation(
 
 
 def _simplify_division_exponentiation(
-    node: Operation, solve_action_list: list[SolveActionEntry]
+    node: Operation, solve_action_list: List[SolveActionEntry]
 ):
     assert node.token_type & TT_Div
 
@@ -355,7 +355,7 @@ def _simplify_division_exponentiation(
     i = 0
     while i < len(dividends):
         base = dividends[i]
-        exponent_terms: list[TokenValue] = []
+        exponent_terms: List[TokenValue] = []
 
         if isinstance(base, Operation) and base.token_type & TT_Exponent:
             flattened = _simplify_exponentiation_flatten(base, solve_action_list)
@@ -429,7 +429,7 @@ def _simplify_division_exponentiation(
 
 
 def _simplify_factors_exponentiation(
-    node: Operation, solve_action_list: list[SolveActionEntry]
+    node: Operation, solve_action_list: List[SolveActionEntry]
 ) -> TokenValue:
     assert node.token_type & TT_Mult
     node_str = str(node)
@@ -440,7 +440,7 @@ def _simplify_factors_exponentiation(
     i = 0
     while i < len(values):
         value = values[i]
-        exponent_terms: list[TokenValue] = []
+        exponent_terms: List[TokenValue] = []
 
         if isinstance(value, Operation) and value.token_type & TT_Exponent:
             flattened = _simplify_exponentiation_flatten(value, solve_action_list)
@@ -499,7 +499,7 @@ def _simplify_factors_exponentiation(
 
 
 def _simplify_factors(
-    node: Operation, solve_action_list: list[SolveActionEntry]
+    node: Operation, solve_action_list: List[SolveActionEntry]
 ) -> Operation:
     """
     calculate the product of all integers
@@ -566,7 +566,7 @@ def _simplify_factors(
 
 
 def _simplify_terms(
-    node: Operation, solve_action_list: list[SolveActionEntry]
+    node: Operation, solve_action_list: List[SolveActionEntry]
 ) -> Operation:
     """calculate the sum of all integers"""
     assert node.token_type & TT_Add
@@ -623,9 +623,9 @@ def _simplify_terms(
 
 def _collect_dividends_and_divisors(
     node: TokenValue,
-) -> Tuple[list[TokenValue], list[TokenValue]]:
-    left: list[TokenValue] = []  # a list containing all values that would be a dividend
-    right: list[TokenValue] = []  # a list containinga all dividends
+) -> Tuple[List[TokenValue], List[TokenValue]]:
+    left: List[TokenValue] = []  # a list containing all values that would be a dividend
+    right: List[TokenValue] = []  # a list containinga all dividends
 
     if node.token_type & TT_Mult and isinstance(node, Operation):
         for value in node.values:
@@ -646,12 +646,12 @@ def _collect_dividends_and_divisors(
 
 
 def _simplify_division_flatten(
-    node: Operation, solve_action_list: list[SolveActionEntry]
+    node: Operation, solve_action_list: List[SolveActionEntry]
 ) -> Operation:
     assert node.token_type & TT_Div
 
-    dividends: list[TokenValue] = []
-    divisors: list[TokenValue] = []
+    dividends: List[TokenValue] = []
+    divisors: List[TokenValue] = []
 
     node_str = str(node)
 
@@ -684,7 +684,7 @@ def _simplify_division_flatten(
 
 
 def _simplify_division(
-    node: Operation, solve_action_list: list[SolveActionEntry]
+    node: Operation, solve_action_list: List[SolveActionEntry]
 ) -> Operation:
     assert node.token_type & TT_Div
 
@@ -755,7 +755,7 @@ def _simplify_division(
 def _simplify_distribute_factor(
     node: Operation,
     idx: int,
-    solve_action_list: list[SolveActionEntry],
+    solve_action_list: List[SolveActionEntry],
     simplify_terms=True,
 ):
     assert len(node.values) > idx and idx >= 0
@@ -800,7 +800,7 @@ def _simplify_distribute_factor(
 
 
 def _simplify_distribute_dividend(
-    node: Operation, idx: int, solve_action_list: list[SolveActionEntry]
+    node: Operation, idx: int, solve_action_list: List[SolveActionEntry]
 ) -> Operation:
     assert node.token_type & TT_Div
 
@@ -816,7 +816,7 @@ def _simplify_distribute_dividend(
 
     node_str = str(node)
     values = list(node.left.values)
-    terms: list[TokenValue] = list()
+    terms: List[TokenValue] = list()
 
     if idx < 0:
         terms = values
@@ -858,7 +858,7 @@ def _simplify_distribute_dividend(
 
 
 def _temp_name_smush_all_terms_containing_the_target_into_one_fraction(
-    node: Operation, target: TokenValue, solve_action_list: list[SolveActionEntry]
+    node: Operation, target: TokenValue, solve_action_list: List[SolveActionEntry]
 ):
     """
     1 / a + a => (1 + a * a) / a
@@ -881,7 +881,7 @@ def _temp_name_smush_all_terms_containing_the_target_into_one_fraction(
     # TODO: record the behaviour better
 
     values = list(node.values)
-    relevant_values: list[Operation] = []
+    relevant_values: List[Operation] = []
 
     i = -1  # position where resulting fraction should be placed
 
@@ -915,8 +915,8 @@ def _temp_name_smush_all_terms_containing_the_target_into_one_fraction(
     # TODO: see if there is a possibility to retain the order of dividends
 
     # smush all ze relevant values into a single fraction
-    dividend_terms: list[TokenValue] = []
-    divisor_factors: list[TokenValue] = []
+    dividend_terms: List[TokenValue] = []
+    divisor_factors: List[TokenValue] = []
 
     for rv in relevant_values:
         dividends, divisors = _collect_dividends_and_divisors(rv)
@@ -957,7 +957,7 @@ def _temp_name_smush_all_terms_containing_the_target_into_one_fraction(
 
 
 def _simplify_distribute_factor_from_dividend(
-    node: Operation, target: Variable, solve_action_list: list[SolveActionEntry]
+    node: Operation, target: Variable, solve_action_list: List[SolveActionEntry]
 ):
     """
     (a + 2) / 2 => 1 / 2 * (a + 2)
@@ -1020,7 +1020,7 @@ def _simplify_distribute_factor_from_dividend(
 
 
 def _simplify_factor_target(
-    node: Operation, target: TokenValue, solve_action_list: list[SolveActionEntry]
+    node: Operation, target: TokenValue, solve_action_list: List[SolveActionEntry]
 ) -> Operation:
     assert node.token_type & TT_Add
     node_str = str(node)
@@ -1093,8 +1093,8 @@ def _simplify_factor_target(
 
         i += 1
 
-    factor_terms: list[TokenValue] = []
-    factor_indices: list[int] = []
+    factor_terms: List[TokenValue] = []
+    factor_indices: List[int] = []
 
     i = 0
     while i < len(values):
@@ -1155,7 +1155,7 @@ def _simplify_factor_target(
 
 
 def _simplify(
-    node: TokenValue, solve_action_list: list[SolveActionEntry] = []
+    node: TokenValue, solve_action_list: List[SolveActionEntry] = []
 ) -> TokenValue:
     if node.token_type & TT_Add:
         return _simplify_terms(node, solve_action_list=solve_action_list)
@@ -1169,7 +1169,7 @@ def _simplify(
 
 
 def solve_for2(
-    node: Operation, target: Variable, solve_action_list: list[SolveActionEntry] = []
+    node: Operation, target: Variable, solve_action_list: List[SolveActionEntry] = []
 ) -> Operation:
     assert node.token_type & TT_Equ, "root must be a equals operation"
     assert isinstance(node, Operation)
@@ -1483,13 +1483,13 @@ def solve_for2(
     return node
 
 
-def collect_all_variables(node: TokenValue) -> list[Variable]:
+def collect_all_variables(node: TokenValue) -> List[Variable]:
     if not isinstance(node, Operation):
         if isinstance(node, Variable):
             return [node]
         return []
 
-    variables: list[Variable] = []
+    variables: List[Variable] = []
 
     nodes = list(node.values)
     while len(nodes):
@@ -1526,8 +1526,8 @@ def replace_variables(node: Operation, *values: Tuple[Operation, ...]):
 
 
 def find_values_that_would_cause_an_undefined_result(
-    node: Operation, bad_values: list[Tuple[Variable, TokenValue]]
-) -> list[Tuple[Variable, TokenValue]]:
+    node: Operation, bad_values: List[Tuple[Variable, TokenValue]]
+) -> List[Tuple[Variable, TokenValue]]:
     """
     The aim with this function is determine values that would cause a undefined result.
     "a = 10 / b", b != 0
@@ -1591,7 +1591,7 @@ def evaluate_solution(source: Operation, solved: Operation):
     pass
 
 
-def _print_solve_action_list(solve_action_list: list[SolveActionEntry]):
+def _print_solve_action_list(solve_action_list: List[SolveActionEntry]):
     for solve_action in solve_action_list:
         if solve_action["type"] == "global":
             print(
@@ -1631,7 +1631,7 @@ def _test_solve_for2(expr, target, show_solve_action_list: Literal[0, 1, 2] = 0)
         return
 
     expr = build_tree2(parse(expr))
-    solve_action_list: list[SolveActionEntry] = []
+    solve_action_list: List[SolveActionEntry] = []
 
     try:
         solved = solve_for2(expr, target, solve_action_list=solve_action_list)

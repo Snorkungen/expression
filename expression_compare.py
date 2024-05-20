@@ -5,9 +5,9 @@ from utils import *
 
 def _collect_dividends_and_divisors(
     node: TokenValue,
-) -> Tuple[list[TokenValue], list[TokenValue]]:
-    left: list[TokenValue] = []  # a list containing all values that would be a dividend
-    right: list[TokenValue] = []  # a list containinga all dividends
+) -> Tuple[List[TokenValue], List[TokenValue]]:
+    left: List[TokenValue] = []  # a list containing all values that would be a dividend
+    right: List[TokenValue] = []  # a list containinga all dividends
 
     if node.token_type & TT_Mult and isinstance(node, Operation):
         for value in node.values:
@@ -221,7 +221,7 @@ def factor_terms_n_stuff(node: Operation):
     """
     assert node.token_type & TT_Add
 
-    term_info: list[Tuple[TokenValue, Iterable[TokenValue]]] = []
+    term_info: List[Tuple[TokenValue, Iterable[TokenValue]]] = []
 
     for term in node.values:
         dividends, divisors = _collect_dividends_and_divisors(term)
@@ -376,8 +376,8 @@ def _coerce_into_fraction(node: TokenValue):
     else:
         # collect dividends and divisors for Addition and multiplication
         i = 0
-        dividends: list[TokenValue] = []
-        divisors: list[TokenValue] = []
+        dividends: List[TokenValue] = []
+        divisors: List[TokenValue] = []
 
         while i < len(node.values):
             # hope fully if it ends up working correctly _coerce_into_fraction will flatten wher possible
@@ -531,7 +531,7 @@ def _gather_inventory(node: TokenValue):
     terms = _gather_terms(_calculate(_exponentiate_node(node)))
 
     integer_sum = 0
-    node_factors: dict[str, TokenValue] = {}
+    node_factors: Dict[str, TokenValue] = {}
 
     for i, value in enumerate(terms):
         if value.token_type & TT_Int:
