@@ -73,6 +73,8 @@ RESERVED_IDENTITIES = {
     ",": TT_Comma | TT_Operation | TT_Ident,
 }
 
+Token = NewType("Token", Tuple[int, Any])
+
 
 def ismathematical_alphanumeric_symbol(char: str) -> bool:
     return ord(char[0]) >= 0x1D400 and ord(char[0]) <= 0x1D7FF
@@ -93,134 +95,48 @@ def issubscript(char: str) -> bool:
     return False
 
 
-Token = NewType("Token", Tuple[int, Any])
+def is_opening_bracket(char: str) -> bool:
+    return char in "([{"
 
 
-def parse(
-    input_text: str, additional_identities: dict[str, int] = None
-) -> Iterable[Tuple[int, Any]]:
-    tokens: list[Tuple[int, Any]] = []
-    tokens_positions = []
-    token_type = 0
-    buffer = ""
-    i = 0
+def find_closing_bracket_location(input_text: str, opening_bracket: str, i: int) -> int:
+    bracket_pairs = ("()", "{}", [])
+    # determind the bracket that is relevant
 
-    if not additional_identities:
-        identities = RESERVED_IDENTITIES
+    for bracket_pair in bracket_pairs:
+        if bracket_pair[0] == opening_bracket:
+            brackets = bracket_pair
+        break
     else:
-        identities = {**RESERVED_IDENTITIES, **additional_identities}
+        # should raise an error claiming that the given bracket is not a valid opening bracket
+        pass
 
+    brackets = bracket_pairs[0]
+    depth = 0
     while i < len(input_text):
         char = input_text[i]
         i += 1
+        if char == brackets[0]:
+            depth += 1
+        elif char == brackets[1]:
+            depth -= 1
+            if depth < 0:
+                return i  # return early found the end
 
-        if (
-            not char.isascii()
-            and not issubscript(char)
-            and not ismathematical_alphanumeric_symbol(char)
-        ):
-            raise ValueError(f"{char} : unsupported charachter")
+    return i + 1
 
-        if char.isspace():
-            if token_type == 0:
-                continue
-            tokens.append((token_type, buffer))
-            tokens_positions.append(i)
-            buffer = ""
-            token_type = 0
-            continue
 
-        if token_type == 0:
-            # there is nothing to initialize stuff
-            if char.isnumeric() and not issubscript(char):
-                # what we're dealing with is something numeric
-                token_type = TT_Numeric | TT_Int
-            else:
-                token_type = TT_Ident
+def is_candidate_for_implicit_multiplication(token: Token):
+    """Token is either tokens, numeric or a variable"""
+    return b_nand(token[0], TT_INFO_MASK) == TT_Ident or token[  # exclusive TT_Ident
+        0
+    ] & (
+        TT_Numeric | TT_Tokens
+    )  # either numeric or a tokens token
 
-        if char == "(":
-            if buffer:
-                tokens.append((token_type, buffer))
-                tokens_positions.append(i)
-            buffer = ""
-            token_type = 0
-            start = i
-            depth = 0
-            brackets = "()"
-            while i < len(input_text):
-                char = input_text[i]
-                i += 1
-                if char == brackets[0]:
-                    depth += 1
-                elif char == brackets[1]:
-                    depth -= 1
-                    if depth < 0:
-                        tokens.append(
-                            (
-                                TT_Tokens,
-                                parse(input_text[start : i - 1], additional_identities),
-                            )
-                        )
-                        tokens_positions.append(i)
-                        break
-        if token_type & TT_Numeric:
-            if char.isnumeric() and not issubscript(char):
-                buffer += char
-            elif char == ".":
-                buffer += "."
-                token_type = (
-                    token_type | TT_Float
-                ) ^ TT_Int  # set type to a numeric float only
-            else:
-                # add the current buffer and pressume it is an ident
-                tokens.append((token_type, buffer))
-                tokens_positions.append(i)
-                buffer = ""
-                token_type = TT_Ident
 
-        if token_type & TT_Ident:
-            # first check that the char is not reserved and special
-            if char in identities or (char.isnumeric() and not issubscript(char)):
-                if buffer:  # prevent adding an empty buffer to tokens
-                    tokens.append((token_type, buffer))
-                    tokens_positions.append(i)
-                buffer = char
-            else:
-                buffer += char
-
-            if char.isnumeric() and not issubscript(char):
-                token_type = TT_Int
-
-        # final thing in loop check buffer for a reserved identity
-        if buffer in identities:
-            # select the longest match
-            identity_options = filter(lambda name: name.startswith(buffer), identities)
-            selected_identity = buffer
-            for name in identity_options:
-                diff = len(name) - len(buffer)
-                if diff == 0:
-                    pass
-                elif len(selected_identity) < len(name) and len(input_text) > i + diff -1:
-                    if input_text[i: i + diff] == name[-diff:]:
-                        selected_identity = name
-            else:
-                diff = len(selected_identity) - len(buffer)
-                i += diff
-            
-            tokens.append((identities[selected_identity], selected_identity))
-            tokens_positions.append(i)
-
-            buffer = ""
-            token_type = 0
-
-    # final stuff
-    if token_type != 0:
-        tokens.append((token_type, buffer))
-        tokens_positions.append(i)
-
-    # Do some checking that the given tokens make sense
-    # The following should not be a part of the tokeniser
-
+def modify_tokens_to_make_more_sense(tokens: list[Token], tokens_positions: list[int]):
+    """modify the tokens"""
     i = 0
     token: Tuple[int, Any]
     while i < len(tokens):
@@ -231,21 +147,11 @@ def parse(
         next_token = tokens[i + 1]
 
         if token[0] & TT_Mult and next_token[0] & TT_Mult:
-            # cast ** to exponentiation
+            # cast "**" to exponentiation
             tokens.pop(i)
             tokens_positions.pop(i)
 
             tokens[i] = (RESERVED_IDENTITIES["^"], "^")
-
-        def is_candidate_for_implicit_multiplication(token: Token):
-            """Token is either tokens, numeric or a variable"""
-            return b_nand(
-                token[0], TT_INFO_MASK
-            ) == TT_Ident or token[  # exclusive TT_Ident
-                0
-            ] & (
-                TT_Numeric | TT_Tokens
-            )  # either numeric or a tokens token
 
         if is_candidate_for_implicit_multiplication(
             token
@@ -278,6 +184,7 @@ def parse(
             elif next_token[0] & TT_Ident:
                 tokens.insert(0, ((TT_Numeric | TT_Numeric_Negative | TT_Int), "-1"))
                 tokens.insert(1, (RESERVED_IDENTITIES["*"], "*"))
+                tokens_positions.insert(1, -1)
             else:
                 # TODO: emit a
                 pass
@@ -349,6 +256,128 @@ def parse(
 
         i += 1
 
+
+def parse(
+    input_text: str, additional_identities: dict[str, int] = None
+) -> Iterable[Tuple[int, Any]]:
+    tokens: list[Tuple[int, Any]] = []
+    tokens_positions = []
+    token_type = 0
+    buffer = ""
+    i = 0
+
+    if not additional_identities:
+        identities = RESERVED_IDENTITIES
+    else:
+        identities = {**RESERVED_IDENTITIES, **additional_identities}
+
+    while i < len(input_text):
+        char = input_text[i]
+        i += 1
+
+        if (
+            not char.isascii()
+            and not issubscript(char)
+            and not ismathematical_alphanumeric_symbol(char)
+        ):
+            raise ValueError(f"{char} : unsupported character")
+
+        if char.isspace():
+            if token_type == 0:
+                continue
+            tokens.append((token_type, buffer))
+            tokens_positions.append(i)
+            buffer = ""
+            token_type = 0
+            continue
+
+        if token_type == 0:
+            # there is nothing to initialize stuff
+            if char.isnumeric() and not issubscript(char):
+                # what we're dealing with is something numeric
+                token_type = TT_Numeric | TT_Int
+            else:
+                token_type = TT_Ident
+
+        if is_opening_bracket(char):
+            if buffer:
+                tokens.append((token_type, buffer))
+                tokens_positions.append(i)
+            # reset buffer and token type
+            buffer = ""
+            token_type = 0
+            start = i
+            end_pos = find_closing_bracket_location(input_text, char, start)
+            tokens.append(
+                (
+                    TT_Tokens,
+                    parse(input_text[start : end_pos - 1], additional_identities),
+                )
+            )
+            tokens_positions.append(end_pos)
+            i = end_pos
+        if token_type & TT_Numeric:
+            if char.isnumeric() and not issubscript(char):
+                buffer += char
+            elif char == ".":
+                buffer += "."
+                token_type = (
+                    token_type | TT_Float
+                ) ^ TT_Int  # set type to a numeric float only
+            else:
+                # add the current buffer and pressume it is an ident
+                tokens.append((token_type, buffer))
+                tokens_positions.append(i)
+                buffer = ""
+                token_type = TT_Ident
+
+        if token_type & TT_Ident:
+            # first check that the char is not reserved and special
+            if char in identities or (char.isnumeric() and not issubscript(char)):
+                if buffer:  # prevent adding an empty buffer to tokens
+                    tokens.append((token_type, buffer))
+                    tokens_positions.append(i)
+                buffer = char
+            else:
+                buffer += char
+
+            if char.isnumeric() and not issubscript(char):
+                token_type = TT_Int
+
+        # final thing in loop check buffer for a reserved identity
+        if buffer in identities:
+            # select the longest match
+            identity_options = filter(lambda name: name.startswith(buffer), identities)
+            selected_identity = buffer
+            for name in identity_options:
+                diff = len(name) - len(buffer)
+                if diff == 0:
+                    pass
+                elif (
+                    len(selected_identity) < len(name)
+                    and len(input_text) > i + diff - 1
+                    and input_text[i : i + diff] == name[-diff:]
+                ):
+                    selected_identity = name
+            else:
+                diff = len(selected_identity) - len(buffer)
+                i += diff
+
+            tokens.append((identities[selected_identity], selected_identity))
+            tokens_positions.append(i)
+
+            buffer = ""
+            token_type = 0
+
+    # final stuff
+    if token_type != 0:
+        tokens.append((token_type, buffer))
+        tokens_positions.append(i)
+
+    # Do some checking that the given tokens make sense
+    # The following should not be a part of the tokeniser
+    modify_tokens_to_make_more_sense(tokens, tokens_positions)
+
     # TODO: verify that the use of "," is correct
 
     return tokens
@@ -366,6 +395,6 @@ def parsed_to_string(parsed: Iterable[Tuple[int, Any]], space: str = " ") -> str
 
 
 assert parsed_to_string(parse("12.01 + 1"), space="") == "12.01+1"
-# assert len(parse("-1")) == 1
-# assert parsed_to_string(parse("-a"), space="") == "-1*a"
-# assert parsed_to_string(parse("a₀ + 1 - 𝜃 + 𝛑")) == "a₀ + 1 - 𝜃 + 𝛑"
+assert len(parse("-1")) == 1
+assert parsed_to_string(parse("-a"), space="") == "-1*a"
+assert parsed_to_string(parse("a₀ + 1 - 𝜃 + 𝛑")) == "a₀ + 1 - 𝜃 + 𝛑"
