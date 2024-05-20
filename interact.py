@@ -82,6 +82,9 @@ class State:
         # call dispatch function
         try:
             func[0](self, node)
+        except AssertionError as e:
+            print("assertion error")
+            print(e)
         except BaseException as e:
             print("function failed")
             print(e)
