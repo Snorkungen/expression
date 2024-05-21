@@ -77,10 +77,16 @@ Token = NewType("Token", Tuple[int, Any])
 
 
 def ismathematical_alphanumeric_symbol(char: str) -> bool:
+    """Check that the character is within the character set, Unicode
+    source: https://en.wikipedia.org/wiki/Mathematical_Alphanumeric_Symbols
+    """
     return ord(char[0]) >= 0x1D400 and ord(char[0]) <= 0x1D7FF
 
 
 def issubscript(char: str) -> bool:
+    """Check that character is a unicode subscript symbol
+    source: https://unicode.org/charts/PDF/U2070.pdf
+    """
     n = ord(char[0])
 
     if n >= 0x2080 and n <= 0x209C and n != 0x208F:
@@ -100,18 +106,24 @@ def is_opening_bracket(char: str) -> bool:
 
 
 def find_closing_bracket_location(input_text: str, opening_bracket: str, i: int) -> int:
-    bracket_pairs = ("()", "{}", [])
-    # determind the bracket that is relevant
+    """Return the index of the closing bracket"""
+    # Define a tuple containge the characters for bracket pairs
+    bracket_pairs = ("()", "{}", "[]")
 
+    # determind the bracket that is relevant
     for bracket_pair in bracket_pairs:
         if bracket_pair[0] == opening_bracket:
             brackets = bracket_pair
-        break
+            break
     else:
-        # should raise an error claiming that the given bracket is not a valid opening bracket
-        pass
+        raise ValueError(
+            f'"{opening_bracket}" not in bracket_pairs {str(bracket_pairs)}'
+        )
 
-    brackets = bracket_pairs[0]
+    # increment depth for every opening bracket found
+    # decrement depth for every
+    # if depth is negative, the closing bracket has been found
+
     depth = 0
     while i < len(input_text):
         char = input_text[i]
@@ -123,6 +135,9 @@ def find_closing_bracket_location(input_text: str, opening_bracket: str, i: int)
             if depth < 0:
                 return i  # return early found the end
 
+    # No closing bracket found
+    # return the end of the input text plus 1,
+    # so that the user of this function then quit because the end is after the lengt of the input text
     return i + 1
 
 
@@ -135,8 +150,7 @@ def is_candidate_for_implicit_multiplication(token: Token):
     )  # either numeric or a tokens token
 
 
-def modify_tokens_to_make_more_sense(tokens: List[Token], tokens_positions: List[int]):
-    """modify the tokens"""
+def resolve_tokens(tokens: List[Token], tokens_positions: List[int]):
     i = 0
     token: Tuple[int, Any]
     while i < len(tokens):
@@ -146,6 +160,7 @@ def modify_tokens_to_make_more_sense(tokens: List[Token], tokens_positions: List
         token = tokens[i]
         next_token = tokens[i + 1]
 
+        # Resolve two multiplication tokens into one exponentiation token
         if token[0] & TT_Mult and next_token[0] & TT_Mult:
             # cast "**" to exponentiation
             tokens.pop(i)
@@ -153,6 +168,7 @@ def modify_tokens_to_make_more_sense(tokens: List[Token], tokens_positions: List
 
             tokens[i] = (RESERVED_IDENTITIES["^"], "^")
 
+        # Add a multiplication token between two symbols
         if is_candidate_for_implicit_multiplication(
             token
         ) and is_candidate_for_implicit_multiplication(next_token):
@@ -161,6 +177,7 @@ def modify_tokens_to_make_more_sense(tokens: List[Token], tokens_positions: List
             tokens_positions.insert(i, -1)
             continue
 
+        # Resolve situations where the first token is an operation
         if token[0] & TT_Operation and i == 0:
             if token[0] & (TT_Add | TT_Sub) == 0:
                 # TODO: Emit a warning
@@ -189,6 +206,8 @@ def modify_tokens_to_make_more_sense(tokens: List[Token], tokens_positions: List
                 # TODO: emit a
                 pass
 
+        # Handle situation where the current token and following tokens are operations
+        # And attempt to resolve the conflict
         if token[0] & TT_Operation and next_token[0] & TT_Operation:
             if next_token[0] & (TT_Add | TT_Sub) == 0:
                 # TODO: emit an error or warning
@@ -200,8 +219,9 @@ def modify_tokens_to_make_more_sense(tokens: List[Token], tokens_positions: List
                 # TODO: this is most definitively an error
                 break
 
-            # handle *, -, a
-            if tokens[i + 2][0] & TT_Numeric and next_token[0] & (TT_Sub | TT_Add):
+            if tokens[i + 2][0] & TT_Numeric and next_token[0] & (
+                TT_Sub | TT_Add
+            ):  # handle *, -, 1 => *, -1
                 tokens[i + 2] = (
                     (
                         (b_nand(tokens[i + 2][0], TT_INFO_MASK)) | TT_Numeric_Negative
@@ -216,7 +236,7 @@ def modify_tokens_to_make_more_sense(tokens: List[Token], tokens_positions: List
                 continue
             elif b_nand(tokens[i + 2][0], TT_INFO_MASK) == TT_Ident and (
                 next_token[0] & (TT_Sub | TT_Add)
-            ):
+            ):  # handle *, -, a => *, -1, *, a
                 tokens.pop(i + 1)
                 tokens_positions.pop(i + 1)
 
@@ -260,21 +280,28 @@ def modify_tokens_to_make_more_sense(tokens: List[Token], tokens_positions: List
 def parse(
     input_text: str, additional_identities: Dict[str, int] = None
 ) -> Iterable[Tuple[int, Any]]:
+    
     tokens: List[Tuple[int, Any]] = []
     tokens_positions = []
+
+    # initialize state
     token_type = 0
     buffer = ""
+
     i = 0
 
+    # configure identities dict
     if not additional_identities:
         identities = RESERVED_IDENTITIES
     else:
         identities = {**RESERVED_IDENTITIES, **additional_identities}
 
+    # go through every character in the input string
     while i < len(input_text):
         char = input_text[i]
         i += 1
 
+        # check that the character is supported unicode character
         if (
             not char.isascii()
             and not issubscript(char)
@@ -282,15 +309,24 @@ def parse(
         ):
             raise ValueError(f"{char} : unsupported character")
 
+        # ignore whitespace
         if char.isspace():
             if token_type == 0:
                 continue
+            # commit state to tokens
+            # how is a token committed if not in buffer
+            if not buffer:
+                raise ValueError("If there is a token type configured buffer cannot be empty")
+                
             tokens.append((token_type, buffer))
             tokens_positions.append(i)
+
+            # reset state
             buffer = ""
             token_type = 0
             continue
 
+        # initialize the token_type
         if token_type == 0:
             # there is nothing to initialize stuff
             if char.isnumeric() and not issubscript(char):
@@ -300,12 +336,15 @@ def parse(
                 token_type = TT_Ident
 
         if is_opening_bracket(char):
-            if buffer:
+            if buffer: # commit state to tokens
                 tokens.append((token_type, buffer))
                 tokens_positions.append(i)
+            
             # reset buffer and token type
             buffer = ""
             token_type = 0
+
+            # recursively call parse, on the subset of the input_text that is within the brackets
             start = i
             end_pos = find_closing_bracket_location(input_text, char, start)
             tokens.append(
@@ -315,7 +354,10 @@ def parse(
                 )
             )
             tokens_positions.append(end_pos)
-            i = end_pos
+
+            i = end_pos # set the character index to the end
+
+
         if token_type & TT_Numeric:
             if char.isnumeric() and not issubscript(char):
                 buffer += char
@@ -330,6 +372,7 @@ def parse(
                 tokens_positions.append(i)
                 buffer = ""
                 token_type = TT_Ident
+
 
         if token_type & TT_Ident:
             # first check that the char is not reserved and special
@@ -376,7 +419,7 @@ def parse(
 
     # Do some checking that the given tokens make sense
     # The following should not be a part of the tokeniser
-    modify_tokens_to_make_more_sense(tokens, tokens_positions)
+    resolve_tokens(tokens, tokens_positions)
 
     # TODO: verify that the use of "," is correct
 

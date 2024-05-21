@@ -35,6 +35,7 @@ class State:
         self.history = []
         self.prompt = "enter:"
 
+        # if available import the readline module and configure Tab autocomplete
         try:
             import readline
 
@@ -51,18 +52,24 @@ class State:
         if not text.strip():
             return
 
+        # parse the given text into tokens, providing the function identities
         tokens = parser.parse(text, additional_identities=self.reserved_identities)
 
+        # verify that the first token is a function
         if len(tokens) < 1 or tokens[0][0] & parser.TT_Func == 0:
             print("unrecognized value:", text)
             return
 
+        # store the text in history
         self.history.append(text)
+
+        # attempt to build a tree
         try:
             node = tree_builder2.build_tree2(tokens)
         except:
             print("failed to read:", text)
             return
+
 
         if not (
             node.token_type & parser.TT_Func
@@ -110,6 +117,8 @@ class State:
 
 
 ENV_SOLVE_ACTIONS = "solve_actions"
+"""State enviroment key that is used to interact with saved solve actions"""
+
 TESTING_EQUATION = "5 * (a + 2) = (8 / a) * a"
 
 
@@ -218,15 +227,15 @@ def dispatch_inspect_solve(state: State, f: tree_builder2.Function):
 
 description_evaluate_solution: RegisteredFunctionDescription = {
     "name": "evaluate_solution",
-    "short_description": "solve an equation",
-    "signatures": ("solve_for(c = a + b, a)",),
+    "short_description": "Insert solution into an equation, check that the equation evaluates as true",
+    "signatures": ("evaluate_solution(c = a + b, a = c - b)", "evaluate_solution(10 * t = 5, t = -1 / 2 + 1)"),
 }
 
 
 def dispatch_evaluate_solution(_, node: tree_builder2.Function):
-    assert len(node.values) == 2
-    assert isinstance(node.values[0], tree_builder2.Operation)
-    assert isinstance(node.values[1], tree_builder2.Operation)
+    assert len(node.values) == 2, "Two arguments must be given"
+    assert isinstance(node.values[0], tree_builder2.Operation), "The first argument Must be an operation node"
+    assert isinstance(node.values[1], tree_builder2.Operation), "The second argument Must be an operation node"
     source, solved = node.values
 
     print(solve2.evaluate_solution(source, solved))
@@ -283,7 +292,7 @@ def dispatch_alias(state: State, f: tree_builder2.Function):
     values = list(f.values)
     if len(values) < 2:
         state.dispatch(f"help({f.name})")
-        print()
+        print() # print an empty line
 
         for func in state.functions:
             if isinstance(state.functions[func], str):
@@ -307,7 +316,7 @@ def dispatch_alias(state: State, f: tree_builder2.Function):
 
 description_reflect_parser: RegisteredFunctionDescription = {
     "short_description": "print the output of the parser",
-    "signatures": ("reflect_parser (*parameters)",),
+    "signatures": ("reflect_parser (*parameters)", "reflect_parser(7 * a - a * (a + b))"),
 }
 
 
@@ -407,7 +416,7 @@ def dispatch_reflect_token_type(_, func):
 
 description_reflect_tree: RegisteredFunctionDescription = {
     "short_description": "print the shape of the constructed tree",
-    "signatures": ("reflect_tree (*parameters)",),
+    "signatures": ("reflect_tree (*parameters)", "reflect_tree(7 * a - a * (a + b))"),
 }
 
 
@@ -449,7 +458,7 @@ def dispatch_reflect_tree(state: State, func: tree_builder2.Function):
 
     print_token_value(func)
 
-    print()
+    print() # print empty line
     print(func)
 
 

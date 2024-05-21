@@ -80,7 +80,7 @@ class Variable(TokenValue):
 
 class Operation(TokenValue):
     """
-    Operations "Addition"(+), "Multiplication"(*) , "Division"(/), "exponentiation"
+    Operations "Addition"(+), "Multiplication"(*) , "Division"(/), "exponentiation"(^)
     """
 
     values: Tuple[TokenValue]
@@ -136,7 +136,7 @@ class Function(TokenValue):
     values: Tuple[TokenValue]
     token_value: str
 
-    def __init__(self, token: Token, *values: Tuple[TokenValue, ...]) -> None:
+    def __init__(self, token: Token, *values: TokenValue) -> None:
         super().__init__(token)
         self.values = values
 
@@ -149,11 +149,21 @@ class Function(TokenValue):
         return self.token_value
 
     @staticmethod
-    def create(name: str, *values: Tuple[TokenValue, ...]):
+    def create(name: str, *values: TokenValue):
         return Function((TT_Ident | TT_Func, name), *values)
 
 
 def collect_factors_ordered(node: Operation, inplace=True):
+    """collect all direct sub_nodes that are also multiplication
+
+    Operation[*]
+    ├──Operation[*]
+    │  ├──Variable[a]
+    │  └──Variable[b]
+    └──Variable[c]
+
+    => a, b, c
+    """
     assert node.token_type & TT_Mult
     assert isinstance(node, Operation)
 
@@ -190,7 +200,16 @@ def collect_factors_ordered(node: Operation, inplace=True):
 
 
 def collect_terms_ordered(node: Operation, inplace=True):
-    """Collects terms onto node"""
+    """collect all direct sub_nodes that are also addition
+
+    Operation[+]
+    ├──Operation[+]
+    │  ├──Variable[a]
+    │  └──Variable[b]
+    └──Variable[c]
+
+    => a, b, c
+    """
     assert node.token_type & TT_Add
     assert isinstance(node, Operation)
 
@@ -220,6 +239,7 @@ def collect_terms_ordered(node: Operation, inplace=True):
 
 
 def flatten_factors(node: Operation, inplace=True):
+    """take a multiplication node and return a new node with flattened factors"""
     assert node.token_type & TT_Mult
     assert isinstance(node, Operation)
 
@@ -232,6 +252,7 @@ def flatten_factors(node: Operation, inplace=True):
 
 
 def flatten_terms(node: Operation, inplace=True):
+    """take a addition node and return a new node with flattened terms"""
     assert node.token_type & TT_Add
     assert isinstance(node, Operation)
 
@@ -243,7 +264,7 @@ def flatten_terms(node: Operation, inplace=True):
     return Operation((node.token_type, node.token_value), *values)
 
 
-def _create_value(token: Token) -> TokenValue:
+def token_to_token_value(token: Token) -> TokenValue:
     # zero all info mask bits
     token_type = token[0] ^ (token[0] & TT_INFO_MASK)
 
@@ -272,6 +293,7 @@ def build_tree2(tokens: Iterable[Token]) -> TokenValue:
     def _do_operation(
         test: int, OperValue: Callable[[Token, Tuple[TokenValue, ...]], TokenValue]
     ):
+        """Go through tokens and replace tokens with `TokenValue`s"""
         i = 0
         while i < len(tokens) and len(tokens) > 0:
             token = tokens[i]
@@ -306,7 +328,7 @@ def build_tree2(tokens: Iterable[Token]) -> TokenValue:
                         if begin < len(next_token[1]):
                             values.append(build_tree2(next_token[1][begin:]))
                 else:
-                    values.append(_create_value(next_token))
+                    values.append(token_to_token_value(next_token))
 
                 tokens.pop(i + 1)  # remove next_token
                 tokens[i] = (TB_TOKEN_VALUE, OperValue(token, *values))
@@ -316,8 +338,8 @@ def build_tree2(tokens: Iterable[Token]) -> TokenValue:
                 if i == 0 or i + 1 >= len(tokens):
                     raise ValueError("Cannot get left value or right value")
 
-                left = _create_value(tokens[i - 1])
-                right = _create_value(tokens[i + 1])
+                left = token_to_token_value(tokens[i - 1])
+                right = token_to_token_value(tokens[i + 1])
 
                 operation = OperValue(token, left, right)
 
@@ -326,8 +348,8 @@ def build_tree2(tokens: Iterable[Token]) -> TokenValue:
                 tokens.pop(i - 1)  # pop left value
 
     if len(tokens) == 1:
-        return _create_value(tokens[0])
-
+        return token_to_token_value(tokens[0])
+    
     _do_operation(TT_Func, Function)
     _do_operation(TT_Exponent, Operation)
 
@@ -382,6 +404,8 @@ def build_tree2(tokens: Iterable[Token]) -> TokenValue:
         return ValueError
 
     # attempt to flatten addition and multiplication operations
+    # for ease of implementation the previous steps constructed a **binary** tree
+    # and to rectify this later walk the tree and flatten `TokenValue`s
     if isinstance(root, Operation) or isinstance(root, Function):
         nodes = [root]
 
