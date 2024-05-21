@@ -302,6 +302,8 @@ def build_tree2(tokens: Iterable[Token]) -> TokenValue:
                 i += 1
                 continue
 
+            next_token = tokens[i + 1]
+
             if token[0] & TT_Func:
                 # handle a function consume the tokens
                 if (i + 1) >= len(tokens):
@@ -311,11 +313,32 @@ def build_tree2(tokens: Iterable[Token]) -> TokenValue:
                     )  # A function is not guaranteed to have values
                     continue
 
-                next_token = tokens[i + 1]
+                if next_token[0] & TT_Func and i + 2 < len(tokens):
+                    # find the first good none function value
+                    j = i + 2
+                    while j < len(tokens) and tokens[j][0] & TT_Func:
+                        j += 1
+
+                    if len(tokens) == j:
+                        j -= 1
+                        tokens[j] = (TB_TOKEN_VALUE, OperValue(tokens[j]))
+
+                    # recursively walk slice backwards
+                    while j > i:
+                        j -= 1
+
+                        # should probably refactor so that this would not have to call build_tree2
+                        tokens[j] = (
+                            TB_TOKEN_VALUE,
+                            build_tree2((tokens[j], tokens[j + 1])),
+                        )
+                        tokens.pop(j + 1)
+
+                    continue  # IMPORTANT
+
                 values: List[TokenValue] = []
 
                 if next_token[0] & TT_Tokens:
-                    # loop through values and seperate on commas
                     begin = 0
                     j = 0
                     while j < len(next_token[1]):
@@ -349,7 +372,7 @@ def build_tree2(tokens: Iterable[Token]) -> TokenValue:
 
     if len(tokens) == 1:
         return token_to_token_value(tokens[0])
-    
+
     _do_operation(TT_Func, Function)
     _do_operation(TT_Exponent, Operation)
 
@@ -395,7 +418,7 @@ def build_tree2(tokens: Iterable[Token]) -> TokenValue:
         the tree should be left with on node,
         input tokens were probably bad
         """
-        raise ValueError
+        raise ValueError(tokens)
 
     root = tokens[0][1]
 

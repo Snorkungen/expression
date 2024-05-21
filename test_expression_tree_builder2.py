@@ -93,6 +93,43 @@ class BuildTreeTester(unittest.TestCase):
         self.assertTrue(isinstance(node.values[1], Variable))
         self.assertTrue(isinstance(node.values[2], Variable))
 
+    def test_build_tree_function3(self):
+        tokens = parse("__testfunc __testfunc a")
+        node = build_tree2(tokens)
+
+        self.assertTrue(isinstance(node, Function))
+        self.assertEqual(len(node.values), 1)
+
+        self.assertTrue(isinstance(node.values[0], Function))
+        self.assertEqual(len(node.values[0].values), 1)
+        self.assertTrue(isinstance(node.values[0].values[0], Variable))
+
+    def test_build_tree_function31(self):
+        tokens = parse("__testfunc __testfunc __testfunc (a, b)")
+        node = build_tree2(tokens)
+
+        self.assertTrue(isinstance(node, Function))
+        self.assertEqual(len(node.values), 1)
+
+        self.assertTrue(isinstance(node.values[0], Function))
+        self.assertEqual(len(node.values[0].values), 1)
+
+        self.assertTrue(isinstance(node.values[0].values[0], Function))
+        self.assertEqual(len(node.values[0].values[0].values), 2)
+
+    def test_build_tree_function32(self):
+        tokens = parse("__testfunc __testfunc __testfunc")
+        node = build_tree2(tokens)
+
+        self.assertTrue(isinstance(node, Function))
+        self.assertEqual(len(node.values), 1)
+
+        self.assertTrue(isinstance(node.values[0], Function))
+        self.assertEqual(len(node.values[0].values), 1)
+
+        self.assertTrue(isinstance(node.values[0].values[0], Function))
+        self.assertEqual(len(node.values[0].values[0].values), 0)
+
 
 if __name__ == "__main__":
     unittest.main()
